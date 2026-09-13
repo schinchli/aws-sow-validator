@@ -2,7 +2,7 @@
 
 Handles the following routes, all reached via CloudFront on the same domain
 as the page itself. The site is public self-service: /api/invoke and
-/api/drive/* require a Cognito ID token (Authorization: Bearer <token>) —
+/api/drive/* require a Cognito ID token (X-Id-Token header) —
 see _authenticate/_verify_jwt — instead of the old edge Basic Auth.
   POST /api/invoke          — runs the agent (or the deterministic Tier 1
                                engine). Requires auth. Each verified user
@@ -235,11 +235,22 @@ def _authenticate(event):
     or (None, error_response) on failure — callers just check the second
     element before proceeding."""
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
-    auth_header = headers.get("authorization") or ""
-    token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+    # CloudFront Origin Access Control with SigningBehavior=always REPLACES the
+    # viewer's Authorization header with its own SigV4 signature, so a Cognito
+    # ID token sent as "Authorization: Bearer ..." never reaches this function.
+    # The browser therefore sends it as X-Id-Token, which CloudFront forwards
+    # untouched. Authorization is kept as a fallback for direct invocations
+    # (tests, curl against the Function URL) that do not traverse CloudFront.
+    token = (headers.get("x-id-token") or "").strip()
+    if not token:
+        auth_header = headers.get("authorization") or ""
+        token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
     try:
         claims = _verify_jwt(token)
     except AuthError as exc:
+        # Log the reason: a 401 that returns in 2 ms with no log line is
+        # undiagnosable from CloudWatch, and the caller only sees "rejected".
+        print(f"[auth] rejected: code={exc.code} reason={exc.message}")
         return None, _response(exc.status, {"status": "error", "code": exc.code, "message": exc.message})
     return claims, None
 

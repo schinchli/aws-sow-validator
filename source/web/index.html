@@ -1172,7 +1172,7 @@ function renderAcctBar(){
 async function fetchMe(){
   const tok=getIdToken(); if(!tok) return null;
   try{
-    const resp=await fetch("/api/me",{headers:{Authorization:"Bearer "+tok}});
+    const resp=await fetch("/api/me",{headers:{"X-Id-Token":tok}});
     if(!resp.ok){
       // Informational endpoint: leave the session alone. Local expiry in
       // getIdToken() is the single source of truth for "signed in".
@@ -1511,11 +1511,11 @@ async function invokeApi(body){
   if(!tok){sessionExpired("Sign in to run the full agent review.");throw new Error("not_signed_in");}
   const bodyStr=JSON.stringify(body);
   const resp=await fetch("/api/invoke",{method:"POST",
-    headers:{"Content-Type":"application/json","Authorization":"Bearer "+tok,
+    headers:{"Content-Type":"application/json","X-Id-Token":tok,
              "x-amz-content-sha256":await sha256Hex(bodyStr)},
     body:bodyStr});
   let data={}; try{data=await resp.json();}catch{}
-  if(resp.status===401) sessionExpired();
+  if(resp.status===401 && !getIdToken()) sessionExpired();
   return {resp,data};
 }
 let pendingExtraction=null;
@@ -1528,7 +1528,18 @@ function agentBusy(on,label){
   const c=$("confirmBtn"); if(c) c.disabled=on;
 }
 function agentErr(msg,status,data){
-  if(status===401){sessionExpired("Your session expired — sign in again to continue.");return;}
+  if(status===401){
+    // Distinguish "your hour is up" from "the server rejected this request".
+    // Clearing a still-valid session and reopening the modal on every 401 is
+    // what made sign-in appear to fail repeatedly after a successful login.
+    if(!getIdToken()){
+      sessionExpired("Your session expired — sign in again to continue.");
+    }else{
+      showErr((data&&data.message) ? `The server rejected the request: ${data.message}`
+        : "The server rejected that request (401). You are still signed in — try again, and if it persists, sign out and back in.");
+    }
+    return;
+  }
   if(status===402){
     data=data||{};
     ME=Object.assign(ME||{},{runs_used:data.runs_used,free_runs:data.free_runs});
@@ -1611,7 +1622,7 @@ $("confirmBtn").addEventListener("click",async()=>{
 /* ========== Google Drive panel (optional backend feature) ========== */
 let driveFiles=[];
 async function driveApi(pathAndQuery){
-  const resp=await fetch(pathAndQuery,{headers:{"X-Demo-Key":demoKey()}});
+  const resp=await fetch(pathAndQuery,{headers:{"X-Demo-Key":demoKey(),"X-Id-Token":getIdToken()||""}});
   let data={}; try{data=await resp.json();}catch{}
   return {resp,data};
 }

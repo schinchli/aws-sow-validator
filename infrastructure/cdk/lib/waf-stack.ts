@@ -62,7 +62,23 @@ export class PocValidatorWafStack extends Stack {
           priority: 0,
           overrideAction: { none: {} },
           statement: {
-            managedRuleGroupStatement: { vendorName: 'AWS', name: 'AWSManagedRulesCommonRuleSet' },
+            managedRuleGroupStatement: {
+              vendorName: 'AWS',
+              name: 'AWSManagedRulesCommonRuleSet',
+              // SizeRestrictions_BODY blocks request bodies over 8 KB. This API
+              // exists to receive Scope of Work documents: a short SOW extracts
+              // to ~24 KB of text, so every real submission was rejected with a
+              // 403 WAF block page before it ever reached the Lambda.
+              //
+              // Counting instead of blocking is safe here because the payload is
+              // already bounded on three sides: the Lambda enforces
+              // MAX_UPLOAD_BYTES, /api/* requires a verified Cognito token, and
+              // the rate-based rule caps requests per IP. The metric is retained
+              // so oversized bodies remain visible in CloudWatch.
+              ruleActionOverrides: [
+                { name: 'SizeRestrictions_BODY', actionToUse: { count: {} } },
+              ],
+            },
           },
           visibilityConfig: {
             sampledRequestsEnabled: true,
