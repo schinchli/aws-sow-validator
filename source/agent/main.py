@@ -29,6 +29,7 @@ from bedrock_agentcore.identity.auth import requires_access_token
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from config import (
     AGENT_MODEL_ID,
+    COST_RECONCILIATION_TOLERANCE,
     FAST_MODEL_ID,
     GATEWAY_CREDENTIAL_PROVIDER,
     GATEWAY_OAUTH_SCOPES,
@@ -38,6 +39,8 @@ from config import (
 from mcp.client.streamable_http import streamablehttp_client
 from memory.session import get_memory_session_manager
 from strands import Agent
+from strands.hooks.events import BeforeToolCallEvent
+from strands.interventions import Deny, InterventionHandler, Proceed
 from strands.models.bedrock import BedrockModel
 from strands.tools.mcp import MCPClient
 from tools.faq_search import search_faq
@@ -51,7 +54,7 @@ from tools.structured_output import (
 from tools.what_if_pricing import run_what_if
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from core import diagrams, engine, sow
+from core import costs, diagrams, engine, sow
 from core.models import Severity
 
 app = BedrockAgentCoreApp()
@@ -103,8 +106,47 @@ Rules:
 """
 
 _extractor = None
-_sow_grader = None
 _mcp_client = None
+
+# MEASURED (production run): the SOW grader's tool-using agent retried
+# submit_sow_assessment 14 times on Nova, each retry resending the whole
+# context, and only stopped once the response hit the token ceiling — that is
+# what produced "No services extracted" downstream. Strands' Agent has no
+# max_iterations knob for a single agent (that only exists on the multiagent
+# Swarm), so this is the equivalent guard, implemented as an intervention.
+SOW_GRADER_MAX_TOOL_ATTEMPTS = 2
+
+
+class _ToolAttemptCap(InterventionHandler):
+    """Denies a tool call once it has been attempted more than N times.
+
+    Counts EVERY before_tool_call this handler sees (not just failures) —
+    the agent that motivated this only calls one tool (submit_sow_assessment),
+    so "attempts" and "attempts at that tool" are the same thing here. A
+    handler instance must be built fresh per Agent invocation: it is
+    stateful, and reusing one across calls would let attempts accumulate
+    across unrelated documents instead of capping each grading pass on its
+    own.
+    """
+
+    name = "tool-attempt-cap"
+
+    def __init__(self, max_attempts: int = SOW_GRADER_MAX_TOOL_ATTEMPTS, logger=None):
+        self._max_attempts = max_attempts
+        self._attempts = 0
+        self._logger = logger
+
+    def before_tool_call(self, event: BeforeToolCallEvent, **_kwargs):
+        self._attempts += 1
+        if self._attempts <= self._max_attempts:
+            return Proceed()
+        if self._logger is not None:
+            self._logger.warning(
+                "Tool-attempt cap (%d) tripped on %r — stopping the loop",
+                self._max_attempts,
+                event.tool_use.get("name"),
+            )
+        return Deny(reason=f"Stopped after {self._max_attempts} tool attempts.")
 
 
 def load_model(fast: bool = False) -> BedrockModel:
@@ -167,15 +209,18 @@ def get_extractor(session_manager=None):
 
 
 def get_sow_grader():
-    """SOW grader gets no Gateway access — it reads a document, nothing else."""
-    global _sow_grader
-    if _sow_grader is None:
-        _sow_grader = Agent(
-            model=load_model(fast=True),
-            system_prompt=SOW_PROMPT,
-            tools=[submit_sow_assessment],
-        )
-    return _sow_grader
+    """SOW grader gets no Gateway access — it reads a document, nothing else.
+
+    Built fresh on every call, unlike get_extractor's cached agent: the
+    tool-attempt cap below is per-instance state that must count attempts
+    within THIS grading pass only (see _ToolAttemptCap).
+    """
+    return Agent(
+        model=load_model(fast=True),
+        system_prompt=SOW_PROMPT,
+        tools=[submit_sow_assessment],
+        interventions=[_ToolAttemptCap(logger=log)],
+    )
 
 
 def _decode_diagram(payload: dict):
@@ -252,6 +297,87 @@ SOW_BANDS_JSON_PROMPT = SOW_PROMPT.replace(
     '- Respond with ONLY a JSON array, no prose and no code fences:\n'
     '  [{"id": "SOW-01", "band": 0, "justification": "..."}, ...]',
 )
+
+
+def _prefers_plain_json_first(model_id: str) -> bool:
+    """Which SOW-banding path to try FIRST for this model family.
+
+    MEASURED (production run): with a Nova model configured as FAST_MODEL_ID,
+    the tool-using get_sow_grader() agent failed the JSON-array tool schema on
+    14 consecutive attempts ("Invalid header padding" / "persistent issues
+    with JSON parsing") before the plain-JSON fallback ever got a chance to
+    run — each failed attempt resent the full grading context. Nova reliably
+    SUCCEEDS at bare JSON and reliably FAILS the tool-call schema, so for Nova
+    the "fallback" must be the first (and normally only) attempt, not a
+    last resort reached after burning a budget of failed tool calls. Every
+    other model family this sample is configured against calls tools
+    reliably, so they keep the original tool-first order.
+    """
+    return "nova" in model_id.lower()
+
+
+async def _tool_grade_sow(grader_input: str) -> tuple[str, dict | None]:
+    """Tool-based SOW grading via get_sow_grader(). Returns (streamed text
+    the caller should show, bands-by-id or None)."""
+    chunks: list[str] = []
+    try:
+        grader = get_sow_grader()
+        async for event in grader.stream_async(grader_input):
+            if "data" in event and isinstance(event["data"], str):
+                chunks.append(event["data"])
+        return "".join(chunks), (get_last_sow_bands() or None)
+    except Exception as exc:  # noqa: BLE001 — model access is expected to be blocked in this account
+        log.warning("SOW model pass unavailable, using heuristic floor: %s", exc)
+        return "".join(chunks), None
+
+
+async def _plain_grade_sow(grader_input: str) -> dict | None:
+    """Plain-JSON SOW grading (no tool schema). Returns bands-by-id or None.
+
+    Same flaky-tool-use recovery path as SOW-text extraction: ask for bare
+    JSON and parse it here rather than trust tool-use streaming."""
+    try:
+        data = await _plain_json_completion(
+            load_model(fast=True), SOW_BANDS_JSON_PROMPT, grader_input
+        )
+    except Exception as exc:  # noqa: BLE001 — heuristic floor remains the final fallback
+        log.warning("SOW banding JSON fallback failed: %s", exc)
+        return None
+    if not isinstance(data, list):
+        return None
+    return {
+        str(item.get("id")): item
+        for item in data
+        if isinstance(item, dict) and item.get("id")
+    }
+
+
+async def _grade_sow(
+    grader_input: str,
+    fast_model_id: str,
+    *,
+    tool_grade=_tool_grade_sow,
+    plain_grade=_plain_grade_sow,
+) -> tuple[str, dict | None]:
+    """Run the tool-based and plain-JSON SOW graders in whichever order the
+    configured fast model reliably succeeds at first — see
+    _prefers_plain_json_first for why. Falls back to the other path only if
+    the first returns nothing usable. Returns (text to show, bands-by-id).
+
+    ``tool_grade``/``plain_grade`` are injectable so this ordering rule is
+    unit-testable without an Agent, a model, or network access.
+    """
+    if _prefers_plain_json_first(fast_model_id):
+        bands = await plain_grade(grader_input)
+        if bands:
+            return "", bands
+        return await tool_grade(grader_input)
+
+    text, bands = await tool_grade(grader_input)
+    if bands:
+        return text, bands
+    bands = await plain_grade(grader_input)
+    return text, bands
 
 
 def _confirmation_payload(extraction) -> dict:
@@ -422,42 +548,56 @@ async def invoke(payload, context):
         return
 
     # ── Phase 4a: SOW banding (before validation so it can feed the report) ──
+    # Minimum evidence to trust the per-criterion windows below. Below this,
+    # an oddly formatted SOW may have starved every window of matches even
+    # though real content exists elsewhere — the safety valve falls back to a
+    # truncated full document rather than grade the model on scraps.
+    MIN_EVIDENCE_CHARS = 500
+
     sow_score = None
     if sow_text.strip():
         yield "\n\n---\n## Phase 4 · Scoring the Scope of Work\n\n"
         sow_score = sow.score_heuristic(sow_text)
-        grader_input = (
-            "Criteria:\n"
-            + json.dumps(sow.criteria_for_prompt(), indent=2)
-            + "\n\nDocument:\n"
-            + sow_text[:60000]
-        )
+
+        # Only criteria the heuristic pass was NOT already confident about
+        # are worth a model call — see CriterionScore.heuristic_confident.
+        ambiguous = sow.ambiguous_criteria(sow_score)
         bands = None
-        try:
-            grader = get_sow_grader()
-            async for event in grader.stream_async(grader_input):
-                if "data" in event and isinstance(event["data"], str):
-                    yield event["data"]
-            bands = get_last_sow_bands()
-        except Exception as exc:  # noqa: BLE001 — model access is expected to be blocked in this account
-            log.warning("SOW model pass unavailable, using heuristic floor: %s", exc)
-        if not bands:
-            # Same flaky-tool-use fallback as extraction: bare JSON, parsed here.
-            try:
-                data = await _plain_json_completion(
-                    load_model(fast=True), SOW_BANDS_JSON_PROMPT, grader_input
+        if not ambiguous:
+            yield "Heuristic pass was confident on every criterion — skipping the model.\n"
+        else:
+            criteria_payload = sow.grader_payload(sow_text, sow_score)
+            evidence_chars = sum(len(c["evidence"]) for c in criteria_payload)
+            if evidence_chars >= MIN_EVIDENCE_CHARS:
+                grader_input = (
+                    "Criteria, each with the evidence window found for it in "
+                    "the document. Judge only what is shown; an empty "
+                    "evidence field means no matching language was found and "
+                    "should band 0/Absent:\n"
+                    + json.dumps(criteria_payload, indent=2)
                 )
-                if isinstance(data, list):
-                    bands = {
-                        str(item.get("id")): item
-                        for item in data
-                        if isinstance(item, dict) and item.get("id")
-                    }
-            except Exception as exc:  # noqa: BLE001 — heuristic floor remains the final fallback
-                log.warning("SOW banding JSON fallback failed: %s", exc)
+            else:
+                grader_input = (
+                    "Criteria:\n"
+                    + json.dumps(
+                        [
+                            c
+                            for c in sow.criteria_for_prompt()
+                            if c["id"] in set(ambiguous)
+                        ],
+                        indent=2,
+                    )
+                    + "\n\nDocument:\n"
+                    + sow_text[:60000]
+                )
+
+            text, bands = await _grade_sow(grader_input, FAST_MODEL_ID)
+            if text:
+                yield text
+
         if bands:
             sow_score = sow.apply_model_bands(sow_score, bands)
-        else:
+        elif ambiguous:
             yield "\n\nModel grading unavailable — heuristic floor only.\n"
 
     # ── Phases 2, 3, 5: deterministic ────────────────────────────────────────
@@ -473,6 +613,17 @@ async def invoke(payload, context):
         overrides=payload.get("config_overrides") or {},
     )
     report = engine.validate(graph, sow_score)
+
+    # ── Cost reconciliation (COST-01 / COST-02) ─────────────────────────────
+    # Does the SOW's own stated monthly total resemble the estimate the
+    # pricing phase just computed? Findings are appended into the report
+    # BEFORE counts/verdict are read below so a sharp divergence weighs on
+    # the verdict exactly like any other finding — see core/costs.py.
+    reconciliation = costs.reconcile(
+        sow_text, report.cost.total, tolerance=COST_RECONCILIATION_TOLERANCE
+    )
+    cost_findings, cost_passed = costs.build_findings(reconciliation)
+    report.findings.extend(cost_findings)
 
     verdict, reasoning = report.verdict
     yield f"**{verdict}** — {reasoning}\n\n"
@@ -523,7 +674,22 @@ async def invoke(payload, context):
             "region": report.cost.region,
             "as_of": report.cost.as_of,
             "lines": [dataclasses.asdict(line) for line in report.cost.lines],
+            "reconciliation": {
+                "stated_monthly_total": reconciliation.stated.amount,
+                "stated_candidates": reconciliation.stated.candidates,
+                "ambiguous": reconciliation.stated.ambiguous,
+                "estimated_monthly_total": reconciliation.estimated,
+                "ratio": (
+                    None
+                    if reconciliation.ratio in (None, float("inf"))
+                    else reconciliation.ratio
+                ),
+                "tolerance": reconciliation.tolerance,
+                "within_tolerance": reconciliation.within_tolerance,
+                "unpriceable_services": reconciliation.unpriceable_services,
+            },
         },
+        "passed_checks": cost_passed,
         "recommendations": [
             {
                 "title": resource.title,

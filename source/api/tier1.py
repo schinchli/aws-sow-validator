@@ -33,15 +33,65 @@ def _name_variants(service_id, definition):
     return {v for v in variants if len(v) >= 3}
 
 
+# Phrases that mark a region of the document as describing what will NOT be
+# built. A service named only inside such a region is out of scope, and must
+# not be treated as in-scope, priced, or judged by the rule packs.
+#
+# Found on a real SOW: "operation of custom or open-weight models on Amazon
+# SageMaker or Amazon EC2" sat under "Out of Scope". EC2 was detected as
+# in-scope, priced at $179 of a $428 estimate, and raised a HIGH finding that
+# EC2 was not in a private subnet — for a service the architecture does not
+# contain.
+_EXCLUSION_MARKERS = (
+    "out of scope", "out-of-scope", "not in scope", "not in-scope",
+    "excluded", "exclusions", "will not", "shall not", "does not include",
+    "excluding", "no changes to", "outside the scope",
+)
+# How far an exclusion heading governs. A heading applies to its section, not
+# to the whole document, so this is deliberately bounded rather than "until
+# the next heading" — headings are not reliably detectable in extracted text.
+_EXCLUSION_SPAN = 1200
+
+
+def _exclusion_regions(text_lower):
+    """Character ranges that describe work explicitly NOT being done."""
+    regions = []
+    for marker in _EXCLUSION_MARKERS:
+        start = 0
+        while True:
+            idx = text_lower.find(marker, start)
+            if idx < 0:
+                break
+            regions.append((idx, idx + _EXCLUSION_SPAN))
+            start = idx + len(marker)
+    return regions
+
+
+def _in_exclusion(idx, regions):
+    return any(lo <= idx < hi for lo, hi in regions)
+
+
 def detect_services(sow_text):
     """Return (service_ids, grounding) where grounding maps each detected
     service to the exact evidence snippet that matched it. A service with no
     match in the text is simply not reported — nothing is ever inferred."""
     text_lower = sow_text.lower()
+    regions = _exclusion_regions(text_lower)
     services, grounding = [], {}
     for service_id, definition in catalog.service_defs().items():
         for variant in sorted(_name_variants(service_id, definition), key=len, reverse=True):
-            idx = text_lower.find(variant)
+            # Take the first mention that is NOT inside an exclusion region, so
+            # a service named once under "Out of Scope" is not treated as
+            # in-scope. A service mentioned in both places stays in scope.
+            idx, scan = -1, 0
+            while True:
+                hit = text_lower.find(variant, scan)
+                if hit < 0:
+                    break
+                if not _in_exclusion(hit, regions):
+                    idx = hit
+                    break
+                scan = hit + len(variant)
             if idx < 0:
                 continue
             start = max(0, idx - 40)
@@ -54,6 +104,27 @@ def detect_services(sow_text):
             }
             break
     return services, grounding
+
+
+def detect_services_in_cost_table(sow_text):
+    """Service ids named in the document's own COST TABLE rows.
+
+    A SOW's pricing table is the most explicit statement of what is being
+    bought, but prose detection alone misses it: a row reads
+    "Amazon VPC - AWS PrivateLink | 1 VPC Interface Endpoint | $19.98", and the
+    service name may appear nowhere else in the narrative. Detecting from the
+    cost table as well as the prose means the validator judges what the customer
+    is actually being charged for.
+    """
+    rows = [ln for ln in sow_text.split("\n")
+            if re.search(r"\$\s*[\d,]+(?:\.\d{2})?\s*$", ln)]
+    if not rows:
+        return [], {}
+    table_text = "\n".join(rows)
+    ids, grounding = detect_services(table_text)
+    for sid in ids:
+        grounding[sid]["source"] = "cost_table"
+    return ids, grounding
 
 
 def ground_extraction(extraction, sow_text):

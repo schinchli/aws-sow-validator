@@ -123,6 +123,11 @@ tr.total td{font-weight:750;border-top:2px solid var(--line)}
 .svcgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .svcchip{background:var(--accent-soft);color:var(--accent-ink);border-radius:99px;padding:5px 13px;
   font-size:12.5px;font-weight:650}
+.svcchip.optional{background:transparent;border:1px dashed var(--line);color:var(--ink-3);
+  font-weight:600}
+.svcgrid-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--ink-3);margin:16px 0 6px}
+.svcgrid-label:first-of-type{margin-top:14px}
 .totop{position:fixed;right:20px;bottom:20px;width:44px;height:44px;border-radius:50%;
   background:var(--accent);color:#fff;border:none;font-size:18px;line-height:1;cursor:pointer;
   box-shadow:0 4px 14px rgba(0,0,0,.22);opacity:0;pointer-events:none;
@@ -388,32 +393,38 @@ raises the total by roughly $6/month per Web ACL plus $1/month per managed rule 
     <img src="architecture.png" loading="lazy" alt="Architecture diagram of AWS SOW Validator: Amazon
       CloudFront and AWS WAF in front of an Amazon S3-hosted static site; Amazon Cognito for
       authentication; signed API requests routed through AWS Lambda; Lambda invoking Amazon Bedrock
-      AgentCore Runtime, which uses AgentCore Memory, Gateway, Identity, Policy Engine and Code
-      Interpreter alongside Amazon Nova on Bedrock and Bedrock Knowledge Bases; results and run counters
-      stored in Amazon DynamoDB.">
+      AgentCore Runtime and Amazon Nova on Bedrock for every review, with AgentCore Memory, Gateway,
+      Identity, Policy Engine, Code Interpreter and Bedrock Knowledge Bases provisioned and reachable
+      for optional paths (what-if pricing, FAQ search, tool-calling); results and run counters stored
+      in Amazon DynamoDB.">
   </a>
 </div>
 <p class="diagram-caption">Figure: AWS SOW Validator request and review path. Scroll to see the full
   diagram, or click it to open the full-size image in a new tab.</p>
-<p class="meta" style="margin-top:8px">Request path: CloudFront + WAF + S3 (static site) → Cognito
-  (authentication) → Lambda (API + rule packs) → Bedrock AgentCore Runtime (Memory, Gateway, Identity,
-  Policy Engine, Code Interpreter) → Amazon Nova on Bedrock + Bedrock Knowledge Bases → DynamoDB
-  (results, quotas).</p>
+<p class="meta" style="margin-top:8px">Request path, every review: CloudFront + WAF + S3 (static
+  site) → Cognito (authentication) → Lambda (API + rule packs) → Bedrock AgentCore Runtime → Amazon
+  Nova on Bedrock → DynamoDB (results, quotas). AgentCore Gateway, Memory, Identity, Policy Engine,
+  Code Interpreter and Bedrock Knowledge Bases are provisioned and reachable in the same deployment,
+  but a standard review invokes none of them — see below for what turns each one on.</p>
+<p class="svcgrid-label">Used in every review</p>
 <div class="svcgrid">
-  <span class="svcchip">Amazon Bedrock</span>
+  <span class="svcchip">Amazon Bedrock (Amazon Nova)</span>
   <span class="svcchip">Bedrock AgentCore Runtime</span>
-  <span class="svcchip">AgentCore Memory</span>
-  <span class="svcchip">AgentCore Gateway</span>
-  <span class="svcchip">AgentCore Identity</span>
-  <span class="svcchip">AgentCore Policy Engine</span>
-  <span class="svcchip">AgentCore Code Interpreter</span>
-  <span class="svcchip">Bedrock Knowledge Bases</span>
   <span class="svcchip">Amazon CloudFront</span>
   <span class="svcchip">Amazon S3</span>
   <span class="svcchip">AWS Lambda</span>
   <span class="svcchip">Amazon DynamoDB</span>
   <span class="svcchip">Amazon Cognito</span>
   <span class="svcchip">AWS WAF</span>
+</div>
+<p class="svcgrid-label">Available for optional paths</p>
+<div class="svcgrid">
+  <span class="svcchip optional" title="Triggered by an explicit what-if pricing question">AgentCore Code Interpreter</span>
+  <span class="svcchip optional" title="Triggered by an explicit FAQ search">Bedrock Knowledge Bases</span>
+  <span class="svcchip optional" title="Called only if the agent chooses to ground a recommendation in live AWS docs">AgentCore Gateway</span>
+  <span class="svcchip optional" title="Engages only with a stable reviewer identity across sessions">AgentCore Memory</span>
+  <span class="svcchip optional" title="Mints the Gateway's OAuth token — only on the Gateway path">AgentCore Identity</span>
+  <span class="svcchip optional" title="Enforces only when a Gateway tool call is made">AgentCore Policy Engine</span>
 </div>
 </section>
 

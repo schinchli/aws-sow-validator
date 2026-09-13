@@ -5,6 +5,7 @@ every part of this sample a reviewer would take at face value — findings,
 arithmetic, source URLs, the AWS-only restriction — is verifiable offline.
 """
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -1154,3 +1155,301 @@ def test_confirmation_payload_contract():
     assert ex["unmatched"] == extraction.unmatched
     # edges must be JSON-serialisable lists, not tuples
     assert all(isinstance(e, list) for e in ex["edges"])
+
+
+# ── SOW evidence windows (per-criterion, not the whole document) ────────────
+
+
+def test_criteria_evidence_returns_one_entry_per_criterion_bounded_by_span():
+    text = "Objectives: the goal is to reduce operational cost. " + ("x " * 200)
+    evidence = sow.criteria_evidence(text, span=50)
+
+    assert {item["id"] for item in evidence} == {
+        c["id"] for c in catalog.sow_criteria()["criteria"]
+    }
+    for item in evidence:
+        assert len(item["window"]) <= 50
+
+    # "objective" (SOW-01) is present; none of the other criteria's signal
+    # words ("out of scope", "acceptance", "raci", "aws", ...) appear anywhere
+    # in this text, so they must come back with an empty window rather than
+    # some unrelated slice of it.
+    objectives = next(item for item in evidence if item["id"] == "SOW-01")
+    assert objectives["window"]
+    out_of_scope = next(item for item in evidence if item["id"] == "SOW-03")
+    assert out_of_scope["window"] == ""
+
+
+def _synthetic_multi_page_sow() -> str:
+    """A synthetic but realistic multi-page SOW: one short signal-bearing
+    sentence per criterion, buried in pages of scoring-irrelevant filler —
+    the shape that makes "send the whole document" expensive and "send the
+    relevant window" cheap."""
+    filler = (
+        "This paragraph exists purely to simulate the bulk of a real, "
+        "multi-page statement of work and carries no scoring signal "
+        "whatsoever, repeated across several pages of boilerplate. "
+    ) * 40
+    sections = [
+        f"Executive Summary\n{filler}\n",
+        f"Objectives\nThe objective of this engagement is to reduce operational cost.\n{filler}\n",
+        f"In-Scope Deliverables\nThis scope of work will provide a migration runbook as a deliverable.\n{filler}\n",
+        f"Out of Scope\nData migration and production support beyond hypercare are excluded.\n{filler}\n",
+        f"Acceptance Criteria\nEach deliverable has explicit acceptance criteria requiring sign-off.\n{filler}\n",
+        "Assumptions and Dependencies\nThis assumes the customer will provide "
+        f"network access as a prerequisite dependency.\n{filler}\n",
+        f"Timeline\nThe engagement proceeds in three phases across an eight week schedule with two-week sprints.\n{filler}\n",
+        "Pricing\nThis is a fixed price engagement subject to change control "
+        f"via a change request process and monthly invoice.\n{filler}\n",
+        f"Roles and Responsibilities\nA RACI matrix assigns an accountable project manager to each responsibility.\n{filler}\n",
+        f"Architecture\nThe solution runs on AWS in the ap-south-1 region inside a VPC.\n{filler}\n",
+    ]
+    return "\n".join(sections)
+
+
+def test_criteria_evidence_is_dramatically_smaller_than_the_document():
+    text = _synthetic_multi_page_sow()
+    evidence = sow.criteria_evidence(text, span=600)
+    total_evidence = sum(len(item["window"]) for item in evidence)
+
+    assert total_evidence > 0, "fixture must actually match some criteria"
+    assert total_evidence < 0.4 * len(text), (
+        f"evidence ({total_evidence} chars) should be well under 40% of the "
+        f"document ({len(text)} chars)"
+    )
+
+
+# ── SOW model-call skipping (heuristic-confident criteria) ──────────────────
+
+
+def test_ambiguous_criteria_excludes_only_the_heuristic_confident_case():
+    text = "AWS Amazon Architecture Region VPC " + ("detail " * 80)
+    score = sow.score_heuristic(text)
+    aws_criterion = next(c for c in score.scores if c.criterion_id == "SOW-09")
+
+    assert aws_criterion.band == 3
+    assert aws_criterion.heuristic_confident is True
+    assert "SOW-09" not in sow.ambiguous_criteria(score)
+
+
+def test_ambiguous_criteria_includes_absent_and_partial_bands():
+    score = sow.score_heuristic("")  # nothing matches anything
+    assert sow.ambiguous_criteria(score) == [
+        c.criterion_id for c in score.scores
+    ]
+
+
+def test_grader_payload_excludes_confident_criteria_and_carries_evidence():
+    text = "AWS Amazon Architecture Region VPC " + ("detail " * 80)
+    score = sow.score_heuristic(text)
+    payload = sow.grader_payload(text, score)
+
+    assert "SOW-09" not in {item["id"] for item in payload}
+    assert payload, "the other 8 criteria are absent, hence ambiguous"
+    for item in payload:
+        assert set(item) == {"id", "name", "question", "evidence"}
+
+
+def test_grader_payload_returns_empty_list_when_every_criterion_is_confident():
+    score = sow.SOWScore(
+        scores=[
+            sow.CriterionScore(
+                criterion_id=c["id"],
+                name=c["name"],
+                weight=c["weight"],
+                band=3,
+                band_label="Adequate",
+                justification="x",
+                heuristic_confident=True,
+            )
+            for c in catalog.sow_criteria()["criteria"]
+        ]
+    )
+    assert sow.grader_payload("irrelevant document text", score) == []
+
+
+def test_apply_model_bands_with_a_partial_set_leaves_the_rest_at_heuristic():
+    """Only ambiguous criteria are ever sent to the model (item 4), so a real
+    bands_by_id will never cover every criterion — apply_model_bands must
+    leave the untouched ones exactly as the heuristic scored them."""
+    score = sow.score_heuristic(_sample("weak"))
+    baseline = {c.criterion_id: (c.band, c.justification) for c in score.scores}
+    only_one = score.scores[0].criterion_id
+
+    sow.apply_model_bands(
+        score, {only_one: {"band": 4, "justification": "model override"}}
+    )
+
+    for criterion in score.scores:
+        if criterion.criterion_id == only_one:
+            assert criterion.band == 4
+            assert criterion.justification == "model override"
+        else:
+            assert (criterion.band, criterion.justification) == baseline[
+                criterion.criterion_id
+            ]
+
+
+# ── Nova plain-JSON-first ordering (ADR: measured 14 failed tool calls) ─────
+# main.py needs the runtime packages (strands, bedrock_agentcore), so these
+# skip (not fail) where those deps are absent; CI installs them and runs it.
+# None of these hit AWS or a real model — tool_grade/plain_grade are faked.
+
+
+def test_prefers_plain_json_first_only_for_nova_model_ids():
+    main = pytest.importorskip("agent.main", reason="runtime deps not installed")
+    assert main._prefers_plain_json_first("us.amazon.nova-lite-v1:0") is True
+    assert main._prefers_plain_json_first("us.amazon.nova-pro-v1:0") is True
+    assert main._prefers_plain_json_first("NOVA-UPPERCASE") is True
+    assert (
+        main._prefers_plain_json_first("us.anthropic.claude-haiku-4-5-20251001-v1:0")
+        is False
+    )
+    assert main._prefers_plain_json_first("global.anthropic.claude-sonnet-4-6") is False
+
+
+def test_grade_sow_tries_plain_json_first_for_nova_then_falls_back_to_tool():
+    main = pytest.importorskip("agent.main", reason="runtime deps not installed")
+    calls = []
+
+    async def fake_tool(grader_input):
+        calls.append("tool")
+        return "tool-text", {"SOW-01": {"band": 3}}
+
+    async def fake_plain_success(grader_input):
+        calls.append("plain")
+        return {"SOW-01": {"band": 3}}
+
+    async def fake_plain_fail(grader_input):
+        calls.append("plain")
+        return None
+
+    # Plain JSON succeeds -> the tool path (14-failed-calls path in
+    # production) is never even attempted.
+    text, bands = asyncio.run(
+        main._grade_sow(
+            "input",
+            "us.amazon.nova-lite-v1:0",
+            tool_grade=fake_tool,
+            plain_grade=fake_plain_success,
+        )
+    )
+    assert calls == ["plain"]
+    assert bands == {"SOW-01": {"band": 3}}
+
+    # Plain JSON fails (rare) -> only then does it fall back to the tool agent.
+    calls.clear()
+    text, bands = asyncio.run(
+        main._grade_sow(
+            "input",
+            "us.amazon.nova-lite-v1:0",
+            tool_grade=fake_tool,
+            plain_grade=fake_plain_fail,
+        )
+    )
+    assert calls == ["plain", "tool"]
+    assert text == "tool-text"
+    assert bands == {"SOW-01": {"band": 3}}
+
+
+def test_grade_sow_tries_tool_first_for_non_nova_then_falls_back_to_plain():
+    main = pytest.importorskip("agent.main", reason="runtime deps not installed")
+    calls = []
+
+    async def fake_tool_fail(grader_input):
+        calls.append("tool")
+        return "tool-text", None
+
+    async def fake_plain(grader_input):
+        calls.append("plain")
+        return {"SOW-01": {"band": 2}}
+
+    text, bands = asyncio.run(
+        main._grade_sow(
+            "input",
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            tool_grade=fake_tool_fail,
+            plain_grade=fake_plain,
+        )
+    )
+    assert calls == ["tool", "plain"]
+    assert text == "tool-text"
+    assert bands == {"SOW-01": {"band": 2}}
+
+
+def test_grade_sow_tool_first_never_calls_plain_json_when_tool_succeeds():
+    main = pytest.importorskip("agent.main", reason="runtime deps not installed")
+    calls = []
+
+    async def fake_tool(grader_input):
+        calls.append("tool")
+        return "tool-text", {"SOW-01": {"band": 4}}
+
+    async def fake_plain(grader_input):
+        calls.append("plain")
+        return {"SOW-01": {"band": 4}}
+
+    asyncio.run(
+        main._grade_sow(
+            "input",
+            "global.anthropic.claude-sonnet-4-6",
+            tool_grade=fake_tool,
+            plain_grade=fake_plain,
+        )
+    )
+    assert calls == ["tool"]
+
+
+# ── Tool-attempt cap (measured: Nova retried a failing tool call 14 times) ──
+
+
+def _before_tool_call_event(**overrides):
+    from strands.hooks.events import BeforeToolCallEvent
+
+    defaults = dict(
+        agent=None,
+        selected_tool=None,
+        tool_use={"name": "submit_sow_assessment", "toolUseId": "x", "input": {}},
+        invocation_state={},
+    )
+    defaults.update(overrides)
+    return BeforeToolCallEvent(**defaults)
+
+
+def test_tool_attempt_cap_stops_at_n():
+    main = pytest.importorskip("agent.main", reason="runtime deps not installed")
+    from strands.interventions import Deny, Proceed
+
+    cap = main._ToolAttemptCap(max_attempts=2)
+    results = [cap.before_tool_call(_before_tool_call_event()) for _ in range(4)]
+
+    assert isinstance(results[0], Proceed)
+    assert isinstance(results[1], Proceed)
+    assert isinstance(results[2], Deny)
+    assert isinstance(results[3], Deny)
+
+
+def test_tool_attempt_cap_logs_when_it_trips():
+    main = pytest.importorskip("agent.main", reason="runtime deps not installed")
+
+    class _FakeLogger:
+        def __init__(self):
+            self.warnings = []
+
+        def warning(self, *args, **kwargs):
+            self.warnings.append(args)
+
+    logger = _FakeLogger()
+    cap = main._ToolAttemptCap(max_attempts=1, logger=logger)
+    cap.before_tool_call(_before_tool_call_event())  # attempt 1: allowed, no log
+    assert not logger.warnings
+    cap.before_tool_call(_before_tool_call_event())  # attempt 2: denied, logs
+    assert logger.warnings
+
+
+def test_get_sow_grader_builds_a_fresh_agent_per_call():
+    """The tool-attempt cap is per-instance state (see _ToolAttemptCap) — a
+    cached grader Agent would let attempts accumulate across unrelated SOW
+    documents instead of capping each grading pass on its own."""
+    main = pytest.importorskip("agent.main", reason="runtime deps not installed")
+    assert main.get_sow_grader() is not main.get_sow_grader()

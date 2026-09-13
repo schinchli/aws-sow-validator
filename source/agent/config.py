@@ -57,5 +57,13 @@ REQUIRE_EXTRACTION_CONFIRMATION = (
     os.getenv("REQUIRE_EXTRACTION_CONFIRMATION", "true").lower() == "true"
 )
 
+# ─── Cost reconciliation (see core/costs.py) ───────────────────────────────
+# Fraction: the SOW's stated monthly total and the independently computed
+# estimate are considered reconciled if the larger is no more than this much
+# bigger than the smaller. 0.25 = 25%.
+COST_RECONCILIATION_TOLERANCE = float(
+    os.getenv("COST_RECONCILIATION_TOLERANCE", "0.25")
+)
+
 # ─── Logging ────────────────────────────────────────────────────────────────
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

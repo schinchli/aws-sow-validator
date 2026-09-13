@@ -26,6 +26,13 @@ see _authenticate/_verify_jwt — instead of the old edge Basic Auth.
                                extracted text (server-side, stdlib-only
                                .docx parsing), so the browser never handles
                                multi-MB binaries. Requires auth.
+  POST /api/upload-url        — mints a short-lived (<=10 min) presigned S3
+                               POST for the whole .docx file (the browser
+                               never handles the extraction — the file
+                               itself goes straight to S3). Requires auth.
+                               See docx_extract.py for what happens to the
+                               object afterward, once its key is passed to
+                               /api/invoke as `upload_key`.
 """
 
 import hashlib
@@ -44,6 +51,7 @@ import jwt
 from botocore.exceptions import ClientError
 from jwt import PyJWKClient
 
+import docx_extract
 from allowlist import is_signup_allowed
 from sse import _extract_trailing_json, _reassemble_sse  # noqa: F401 — re-exported for tests
 
@@ -72,6 +80,19 @@ FREE_RUNS = int(os.environ.get("FREE_RUNS", "1"))
 SELF_HOST_URL = os.environ.get(
     "SELF_HOST_URL", "https://github.com/awslabs/agentcore-samples")
 MAX_DOCUMENT_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", "5242880"))  # 5 MB cap on sow_text + diagram_text
+# ---- Full-document upload (POST /api/upload-url + upload_key on /api/invoke) --
+# Empty bucket name means this deployment has no uploads bucket wired up —
+# /api/upload-url answers a clean 501 and the inline sow_text path (the
+# no-account preview) is unaffected. See infrastructure/cdk/lib/web-stack.ts
+# for the dedicated bucket (BLOCK_ALL + 7-day lifecycle + DESTROY).
+UPLOADS_BUCKET = os.environ.get("UPLOADS_BUCKET", "")
+# <=10 minutes, per the presigned-upload requirement — short enough that a
+# leaked URL (browser history, a proxy log) is worthless within the hour.
+UPLOAD_URL_EXPIRES_SECONDS = 600
+# Below this fraction of CONTENT parts successfully read, the response
+# carries an explicit low-coverage finding — see docx_extract.py's
+# coverage_pct (denominator excludes styles/rels/theme, which are not content).
+MIN_COVERAGE_PCT = 80.0
 
 # ---- Sign-up allowlist, checked here too as defence in depth -------------
 # The Cognito PreSignUp trigger (source/api/presignup.py) is the authoritative
@@ -334,16 +355,61 @@ def _handle_invoke(event, claims):
     except json.JSONDecodeError:
         return _response(400, {"status": "error", "message": "Body must be JSON."})
 
-    sow_text = (body.get("sow_text") or "").strip()
-    diagram_text = body.get("diagram_text") or ""
+    # upload_key is an alternative to inline sow_text: the whole .docx was
+    # already PUT to S3 via /api/upload-url, and the server does the full
+    # extraction here (body+tables, headers/footers, footnotes, comments,
+    # core props, embedded images) instead of trusting the browser's ~24 KB
+    # client-side text scrape. The inline sow_text path below (the
+    # no-account preview) is unchanged.
+    upload_key = (body.get("upload_key") or "").strip()
+    coverage = None
+    diagram_base64 = ""
+    diagram_format = ""
+    upload_diagram_filename = None
 
-    # MAX_DOCUMENT_BYTES cap on the actual document content, enforced
-    # server-side regardless of what the client claims it sent.
-    doc_bytes = len(sow_text.encode("utf-8")) + len(diagram_text.encode("utf-8"))
-    if doc_bytes > MAX_DOCUMENT_BYTES:
-        return _response(413, {"error": "file_too_large", "limit_bytes": MAX_DOCUMENT_BYTES})
+    if upload_key:
+        if not UPLOADS_BUCKET:
+            return _response(501, {
+                "status": "error", "code": "uploads_not_configured",
+                "message": "Full-document upload is not configured on this deployment — use the inline sow_text preview.",
+            })
+        # Only the caller's own prefix, and only the exact shape minted by
+        # _handle_upload_url — never trust a client-supplied key wholesale.
+        if not re.fullmatch(rf"uploads/{re.escape(claims['sub'])}/[0-9a-f]{{32}}\.docx", upload_key):
+            return _response(403, {"status": "error", "message": "Invalid or foreign upload key."})
+        try:
+            obj = _s3.get_object(Bucket=UPLOADS_BUCKET, Key=upload_key)
+            raw_bytes = obj["Body"].read()
+        except Exception as exc:  # noqa: BLE001 — expired/never-existed object, not a server error
+            return _response(404, {"status": "error", "message": f"Uploaded file not found or expired: {exc}"})
+        # Defence in depth: the presigned POST conditions already enforced
+        # this at upload time (see _handle_upload_url), but check again on
+        # the fetched bytes rather than trust that alone.
+        if len(raw_bytes) > MAX_DOCUMENT_BYTES:
+            return _response(413, {"error": "file_too_large", "limit_bytes": MAX_DOCUMENT_BYTES})
+        try:
+            extraction = docx_extract.extract_docx(raw_bytes, use_vision=True)
+        except Exception as exc:  # noqa: BLE001 — not a valid .docx zip; surfaced cleanly, not a 500
+            return _response(400, {"status": "error", "message": f"Could not parse uploaded document: {exc}"})
+        sow_text = extraction["text"]
+        coverage = extraction["coverage"]
+        diagram_text = ""
+        if extraction.get("diagram_base64"):
+            diagram_base64 = extraction["diagram_base64"]
+            diagram_format = extraction["diagram_format"] or "png"
+            upload_diagram_filename = f"diagram.{diagram_format}"
+    else:
+        sow_text = (body.get("sow_text") or "").strip()
+        diagram_text = body.get("diagram_text") or ""
 
-    diagram_filename = body.get("diagram_filename") or "diagram.mmd"
+        # MAX_DOCUMENT_BYTES cap on the actual document content, enforced
+        # server-side regardless of what the client claims it sent. The
+        # upload path enforces its own cap above, on the raw file bytes.
+        doc_bytes = len(sow_text.encode("utf-8")) + len(diagram_text.encode("utf-8"))
+        if doc_bytes > MAX_DOCUMENT_BYTES:
+            return _response(413, {"error": "file_too_large", "limit_bytes": MAX_DOCUMENT_BYTES})
+
+    diagram_filename = upload_diagram_filename or body.get("diagram_filename") or "diagram.mmd"
     segment = body.get("segment") or "enterprise"
     industry = body.get("industry") or "generic"
     region = body.get("region") or "us-east-1"
@@ -426,6 +492,11 @@ def _handle_invoke(event, claims):
         "sow_text": sow_text,
         "diagram_text": diagram_text,
         "diagram_filename": diagram_filename,
+        # Empty strings (never omitted) when no image was extracted — the
+        # agent's _decode_diagram already treats a falsy diagram_base64 as
+        # "no image supplied".
+        "diagram_base64": diagram_base64,
+        "diagram_format": diagram_format,
         "services": services,
         "edges": edges,
         "extraction_confirmed": extraction_confirmed,
@@ -445,6 +516,7 @@ def _handle_invoke(event, claims):
     cached = _cache_get(cache_key)
     if cached is not None:
         cached["cached"] = True
+        _attach_coverage(cached, coverage)  # describes THIS request's extraction, cache hit or not
         _maybe_share(cached)  # a fresh share link per serve; the result itself cost nothing
         return _response(200, cached)
 
@@ -454,6 +526,7 @@ def _handle_invoke(event, claims):
         payload["client_name"] = body.get("client_name") or ""
         result = _tier1.run(payload, _banned_brands())
         _cache_put(cache_key, result)
+        _attach_coverage(result, coverage)
         _maybe_share(result)
         return _response(200, result)
 
@@ -509,6 +582,7 @@ def _handle_invoke(event, claims):
             parsed.setdefault("evidence_applied", evidence_applied)
         _cache_put(cache_key, parsed)
 
+    _attach_coverage(parsed, coverage)
     _maybe_share(parsed)
 
     return _response(200, parsed)
@@ -522,6 +596,83 @@ def _handle_me(claims):
         "runs_used": int(item.get("runs_used", 0)),
         "free_runs": FREE_RUNS,
     })
+
+
+def _handle_upload_url(claims):
+    """Mint a presigned S3 POST for the caller's own key prefix.
+
+    A presigned POST (not a bare presigned PUT) is used specifically because
+    only the POST policy supports a `content-length-range` condition — the
+    server-side size enforcement the spec calls for. The client must POST
+    multipart/form-data with exactly the returned `fields` (which include
+    Content-Type, so the object's stored content type is signed too, not
+    just checked after the fact).
+    """
+    if not UPLOADS_BUCKET:
+        return _response(501, {
+            "status": "error", "code": "uploads_not_configured",
+            "message": "Full-document upload is not configured on this deployment — use the inline sow_text preview.",
+        })
+    # Never the user-supplied filename in the key — see docx_extract.py's
+    # caller and the key-shape requirement: uploads/{user_sub}/{uuid}.docx.
+    key = f"uploads/{claims['sub']}/{uuid.uuid4().hex}.docx"
+    try:
+        presigned = _s3.generate_presigned_post(
+            Bucket=UPLOADS_BUCKET,
+            Key=key,
+            Fields={"Content-Type": DOCX_MIME},
+            Conditions=[
+                {"Content-Type": DOCX_MIME},
+                ["content-length-range", 1, MAX_DOCUMENT_BYTES],
+            ],
+            ExpiresIn=UPLOAD_URL_EXPIRES_SECONDS,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface as clean JSON, never a raw 500
+        return _response(502, {"status": "error", "message": f"Could not create upload URL: {exc}"})
+    return _response(200, {
+        "status": "ok",
+        "upload_url": presigned["url"],
+        "fields": presigned["fields"],
+        "key": key,
+        "expires_in": UPLOAD_URL_EXPIRES_SECONDS,
+        "max_bytes": MAX_DOCUMENT_BYTES,
+        "content_type": DOCX_MIME,
+    })
+
+
+def _low_coverage_finding(coverage):
+    pct = coverage.get("coverage_pct", 100.0)
+    return {
+        "rule_id": "DLV-COVERAGE",
+        "severity": "Medium",
+        "title": f"Only {pct:.1f}% of document content was extracted",
+        "pillar": "Operational Excellence",
+        "source": "Delivery-standard checks",
+        "rationale": (
+            "This review is based on a partial read of the uploaded document "
+            "— some tables, headers/footers, footnotes, comments, or embedded "
+            "images could not be parsed."
+        ),
+        "remediation": "See coverage.unread_parts in this response for exactly what was skipped and why.",
+        "doc_url": "",
+    }
+
+
+def _attach_coverage(result, coverage):
+    """Fold the upload-extraction coverage report into a result dict, and add
+    a finding when it falls below MIN_COVERAGE_PCT — so a reviewer sees "this
+    validation was based on a partial read" instead of a silently-flattered
+    number. No-op when this request didn't go through the upload path
+    (coverage is None for the inline sow_text preview)."""
+    if coverage is None:
+        return
+    result["coverage"] = coverage
+    if coverage.get("coverage_pct", 100.0) < MIN_COVERAGE_PCT:
+        finding = _low_coverage_finding(coverage)
+        if isinstance(result.get("findings"), list):
+            result["findings"].append(finding)
+        else:
+            result["findings"] = [finding]
 
 
 def _check_and_increment_view(share_id):
@@ -737,7 +888,7 @@ def handler(event, context):
     # Everything else here requires a verified Cognito ID token.
     if (
         (method == "GET" and path in ("/api/drive/list", "/api/drive/fetch", "/api/me"))
-        or (method == "POST" and path == "/api/invoke")
+        or (method == "POST" and path in ("/api/invoke", "/api/upload-url"))
     ):
         claims, err = _authenticate(event)
         if err:
@@ -748,6 +899,8 @@ def handler(event, context):
             return _handle_drive_fetch(event, claims)
         if path == "/api/me":
             return _handle_me(claims)
+        if path == "/api/upload-url":
+            return _handle_upload_url(claims)
         return _handle_invoke(event, claims)
 
     return _response(404, {"status": "error", "message": "Not found."})

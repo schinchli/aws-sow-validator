@@ -9,7 +9,7 @@ set -euo pipefail
 REGION="${1:-us-east-1}"
 CDK_DIR="$(cd "$(dirname "$0")/.." && pwd)/infrastructure/cdk"
 SELF_HOST_URL="${SELF_HOST_URL:-https://github.com/schinchli/aws-sow-validator}"
-FREE_RUNS="${FREE_RUNS:-1}"
+FREE_RUNS="${FREE_RUNS:-3}"
 
 # Discover the agent runtime, if one exists. Absent = deterministic-only deploy,
 # which is a valid configuration, not an error.

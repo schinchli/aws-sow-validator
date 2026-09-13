@@ -1,5 +1,7 @@
+import * as crypto from 'crypto';
+import * as fs from 'fs';
 import * as path from 'path';
-import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from 'aws-cdk-lib';
+import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags, AssetHashType } from 'aws-cdk-lib';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
@@ -19,6 +21,37 @@ import { Construct } from 'constructs';
 // value (see bin/web.ts) — or the empty string to allow open sign-up —
 // rather than editing this default. See source/api/allowlist.py for the
 // exact matching rule (domain entries match exactly; no subdomains).
+/** Free agent-assisted reviews per verified user before the deploy-your-own prompt. */
+/**
+ * Content hash over EVERY input the Lambda bundler copies.
+ *
+ * `Code.fromAsset(source/api)` hashes only that directory, but the local
+ * bundler also copies `source/agent/core` and `config/`. Without this, editing
+ * the deterministic core or a rule pack leaves the asset hash unchanged, CDK
+ * reuses the cached asset, and `cdk deploy` reports success while shipping
+ * stale code — which is exactly how a fixed catalog.py stayed broken in
+ * production through a "successful" deploy.
+ */
+function bundleInputsHash(repoRoot: string): string {
+  const hash = crypto.createHash('sha256');
+  const walk = (dir: string) => {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.name === '__pycache__' || entry.name.endsWith('.pyc')) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      hash.update(path.relative(repoRoot, full));
+      hash.update(fs.readFileSync(full));
+    }
+  };
+  for (const rel of [['source', 'api'], ['source', 'agent', 'core'], ['config']]) {
+    walk(path.join(repoRoot, ...rel));
+  }
+  return hash.digest('hex');
+}
+
+const DEFAULT_FREE_RUNS = 3;
+
 const DEFAULT_SIGNUP_ALLOWED = 'amazon.com,schinchli@gmail.com';
 
 // Server-side cap (bytes) on the combined sow_text + diagram_text payload —
@@ -151,6 +184,32 @@ export class PocValidatorWebStack extends Stack {
       ],
     });
 
+    // ---- Storage: whole-document uploads (POST /api/upload-url) -----------
+    // A DEDICATED bucket rather than a prefix on siteBucket: siteBucket is
+    // RemovalPolicy.RETAIN (it also holds the out-of-band config/ secrets
+    // and long-lived share/ results), while these are raw customer .docx
+    // files that must not outlive 7 days and must be trivially destroyable
+    // with the rest of this stack. Keeping them separate also means the IAM
+    // grant below (uploads/* only) never has to reason about the site
+    // bucket's other prefixes.
+    const uploadsBucket = new s3.Bucket(this, 'UploadsBucket', {
+      bucketName: `poc-validator-uploads-${this.account}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      removalPolicy: RemovalPolicy.DESTROY,
+      lifecycleRules: [
+        {
+          // These are customer documents, not this project's own data —
+          // never retained indefinitely regardless of what else happens to
+          // the object (no tag/prefix condition needed: the whole bucket is
+          // uploads/).
+          id: 'expire-uploads-7d',
+          enabled: true,
+          expiration: Duration.days(7),
+        },
+      ],
+    });
+
     // ---- View-count table for the 3-view share cap -------------------------
     const viewsTable = new dynamodb.Table(this, 'ShareViewsTable', {
       tableName: 'poc-validator-share-views',
@@ -214,7 +273,10 @@ export class PocValidatorWebStack extends Stack {
     // Shared by the web-invoke and email-review functions: one bundle
     // carrying handler.py, tier1.py, email_review.py, pocvalidator/core
     // and the config/data/ catalogue.
-    const bundledCode = lambda.Code.fromAsset(path.join(__dirname, '..', '..', '..', '..', 'source', 'api'), {
+    const bundleRoot = path.join(__dirname, '..', '..', '..', '..');
+    const bundledCode = lambda.Code.fromAsset(path.join(bundleRoot, 'source', 'api'), {
+        assetHash: bundleInputsHash(bundleRoot),
+        assetHashType: AssetHashType.CUSTOM,
         bundling: {
           // Prefer a plain host `pip install` (same command used to build the
           // real, deployed package by hand) over Docker-based bundling — the
@@ -227,7 +289,7 @@ export class PocValidatorWebStack extends Stack {
           // config/data/ (they live outside the asset dir) — a Docker-bundled
           // deploy ships agent-only and Tier 1 answers 503. The local bundler
           // below is the real deploy path and bundles everything.
-          command: ['bash', '-c', 'pip install -r requirements.txt -t /asset-output && cp handler.py tier1.py email_review.py gmail_poller.py sse.py allowlist.py presignup.py /asset-output/'],
+          command: ['bash', '-c', 'pip install -r requirements.txt -t /asset-output && cp handler.py tier1.py email_review.py gmail_poller.py sse.py allowlist.py presignup.py docx_extract.py /asset-output/'],
           local: {
             tryBundle(outputDir: string): boolean {
               const { execFileSync } = require('child_process');
@@ -253,7 +315,7 @@ export class PocValidatorWebStack extends Stack {
                   path.join(src, 'handler.py'), path.join(src, 'tier1.py'),
                   path.join(src, 'email_review.py'), path.join(src, 'gmail_poller.py'),
                   path.join(src, 'sse.py'), path.join(src, 'allowlist.py'),
-                  path.join(src, 'presignup.py'), outputDir,
+                  path.join(src, 'presignup.py'), path.join(src, 'docx_extract.py'), outputDir,
                 ]);
                 // Tier 1's deterministic engine: the core package (as the
                 // pocvalidator namespace package) plus its YAML catalogue.
@@ -338,13 +400,17 @@ export class PocValidatorWebStack extends Stack {
         USER_POOL_ID: userPool.userPoolId,
         USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
         USERS_TABLE: usersTable.tableName,
-        FREE_RUNS: String(props.freeRuns ?? 1),
+        FREE_RUNS: String(props.freeRuns ?? DEFAULT_FREE_RUNS),
         SELF_HOST_URL: props.selfHostUrl ?? 'https://github.com/awslabs/agentcore-samples',
         // Defence-in-depth allowlist check on every API call — see
         // signupAllowed's prop doc comment and source/api/allowlist.py.
         SIGNUP_ALLOWED: props.signupAllowed ?? DEFAULT_SIGNUP_ALLOWED,
         // See maxUploadBytes prop doc comment and handler.py's MAX_DOCUMENT_BYTES.
         MAX_UPLOAD_BYTES: String(props.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES),
+        // Whole-document upload (POST /api/upload-url + upload_key on
+        // /api/invoke) — see the UploadsBucket construct above and
+        // source/api/docx_extract.py.
+        UPLOADS_BUCKET: uploadsBucket.bucketName,
       },
     });
 
@@ -363,6 +429,20 @@ export class PocValidatorWebStack extends Stack {
         })
       );
     }
+    // Vision call used ONLY to identify which embedded image is the
+    // architecture diagram, by looking for AWS service icons inside it.
+    // Scoped to Amazon Nova foundation models and their inference profiles —
+    // not a blanket bedrock:* grant.
+    webInvokeFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel'],
+        resources: [
+          `arn:aws:bedrock:${this.region}::foundation-model/amazon.nova-*`,
+          `arn:aws:bedrock:${this.region}:${this.account}:inference-profile/*amazon.nova-*`,
+        ],
+      })
+    );
+
     webInvokeFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['s3:PutObject', 's3:PutObjectTagging', 's3:GetObject'],
@@ -387,6 +467,17 @@ export class PocValidatorWebStack extends Stack {
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
         resources: [usersTable.tableArn],
+      })
+    );
+    // Whole-document upload: PutObject to presign the browser's direct S3
+    // upload (the Lambda itself never receives the file bytes on this leg —
+    // it only signs the URL), and GetObject to fetch+extract afterward on
+    // /api/invoke's upload_key path. Scoped to the uploads/ prefix (the only
+    // prefix ever written), never bucket-wide.
+    webInvokeFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:PutObject', 's3:GetObject'],
+        resources: [uploadsBucket.arnForObjects('uploads/*')],
       })
     );
     if (props.driveSaSecretArn) {

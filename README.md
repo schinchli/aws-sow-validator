@@ -12,8 +12,13 @@ terminal.
 **The design rule: the model reads, Python decides.** Amazon Nova handles language
 understanding — extracting services from a document, banding vague SOW prose onto a rubric.
 Every number, every integration verdict, and every citation URL is computed by deterministic
-Python against versioned YAML rule packs. The same architecture submitted twice produces the
-same findings and the same cost total.
+Python against versioned YAML rule packs. Three runs of the identical SOW against this rule
+pack produced identical findings, identical integration verdicts, and the identical cost
+total — $427.64, every time — because none of those pass through a model. The one figure
+that moved was the model-assisted SOW score (75.0, 73.8, 72.5 across the three runs): Amazon
+Nova bands SOW prose onto the scoring rubric, and that banding step is not deterministic.
+Treat the score as advisory, not a reproducible number — everything else the tool reports
+is.
 
 Built for partner and pre-sales teams who need a consistent first-pass review of a
 proof-of-concept before it reaches a customer.
@@ -37,7 +42,7 @@ No AWS account needed to try the deterministic engine — jump to
 |---|---|
 | Use case type | Event-driven / document review (single-shot, not conversational) |
 | Agent type | Single agent, five deterministic-and-model phases |
-| Use case components | Tools (Gateway/Lambda MCP target), Memory, Identity (M2M OAuth), Policy Engine (Cedar), Evaluations (configured, account-dependent — see Known Limitations), Observability, IaC (CDK), optional public web front end with view-limited share links |
+| Use case components | Runtime + Amazon Nova (every review); Tools (Gateway/Lambda MCP target), Memory, Identity (M2M OAuth), Policy Engine (Cedar) — provisioned and reachable, exercised only on the optional tool-calling/what-if/FAQ paths, see [Use case key features](#use-case-key-features) below; Evaluations (configured, account-dependent — see Known Limitations), Observability, IaC (CDK), optional public web front end with view-limited share links |
 | Use case vertical | Cross-industry — partner/pre-sales architecture review (segment + industry rule packs cover Enterprise/SMB/Digital Native × FSI/Retail/Generic out of the box) |
 | Example complexity | Intermediate |
 | SDK used | Amazon Bedrock AgentCore SDK (Strands), AgentCore CLI (`agentcore.json`), AWS CDK (web layer + supplementary infra), boto3 |
@@ -66,10 +71,16 @@ No AWS account needed to try the deterministic engine — jump to
 <summary>Text description (for accessibility)</summary>
 
 **Agent core (always deployed):** AgentCore Runtime runs a 5-phase entrypoint (diagram
-intake → validation → pricing → SOW scoring → recommendations). It calls AgentCore Memory
-for cross-session recall, and AgentCore Gateway (MCP, semantic search, CUSTOM_JWT via a
-Cognito M2M client) to reach one Lambda-backed tool target — a real AWS Documentation MCP
-server — with every call checked by a Cedar Policy Engine in `ENFORCE` mode.
+intake → validation → pricing → SOW scoring → recommendations) against Amazon Nova — the
+only two components a standard review actually invokes, confirmed against CloudWatch logs
+from real production runs. AgentCore Memory (cross-session recall), Gateway (MCP, semantic
+search, CUSTOM_JWT via a Cognito M2M client, reaching one Lambda-backed AWS Documentation
+MCP target), Identity (mints the Gateway's OAuth token), and Policy Engine (Cedar,
+`ENFORCE` mode on every Gateway tool call) are all provisioned and reachable — the
+response's `gateway_available: true` means reachable, not called — but a standard
+diagram-and-SOW review generates zero calls to any of them. They engage only on the
+optional paths: an explicit what-if pricing question, an explicit FAQ query, or a caller
+that supplies a stable identity across sessions.
 
 **Web layer (optional):** A browser talks HTTPS to one CloudFront distribution. A
 CloudFront Function does Basic Auth at the edge. The default and `/share/*` behaviors
@@ -392,17 +403,30 @@ public contact or sign-up form rendered in a page — just not for an XHR-driven
 
 ## AgentCore services demonstrated
 
+**Used in every review** — confirmed against CloudWatch logs from real production runs:
+
 | Service | What it does here |
 |---------|-------------------|
 | **Runtime** | Hosts the 5-phase entrypoint (Strands SDK, containerized, streaming responses) |
-| **Memory** | SEMANTIC + SUMMARIZATION for cross-session recall, plus USER_PREFERENCE for durable per-reviewer preferences (region, segment, industry a partner tends to submit) |
-| **Gateway** | MCP protocol, semantic search, 1 Lambda-backed target (real AWS Documentation MCP server) |
-| **Identity** | `@requires_access_token(auth_flow="M2M")` — Gateway OAuth via the Identity vault, no secret in env vars |
-| **Policy Engine** | Cedar policy in `ENFORCE` mode — read-only tool access is a platform constraint |
+| **Amazon Bedrock (Amazon Nova)** | The model call — diagram vision extraction and SOW-prose banding. Phases 2, 3 and 5 (validation, pricing, recommendations) never call it. |
+
+**Provisioned and reachable, but zero calls in a standard review — each engages only on its trigger:**
+
+| Service | Trigger | What it does when invoked |
+|---------|---------|----------------------------|
+| **Gateway** | The agent chooses to call the MCP tool (0 calls in the measured production runs) | MCP protocol, semantic search, 1 Lambda-backed target (real AWS Documentation MCP server). The response's `gateway_available: true` means reachable, not called — Phase 5 recommendations are answered deterministically from `core/resources.py` without it. |
+| **Memory** | A caller supplies a stable actor identity across repeated sessions | SEMANTIC + SUMMARIZATION for cross-session recall, plus USER_PREFERENCE for durable per-reviewer preferences (region, segment, industry a partner tends to submit) |
+| **Identity** | Only on the Gateway path | `@requires_access_token(auth_flow="M2M")` — mints the Gateway's OAuth token via the Identity vault, no secret in env vars |
+| **Policy Engine** | Enforces when a Gateway tool call is made; idle when none are | Cedar policy in `ENFORCE` mode — read-only tool access is a platform constraint |
+| **Code Interpreter** | Explicit `what_if_question` in the request (Phase 6a) | A Haiku-authored `compute(lines)` function runs in the AWS-managed sandbox (`aws.codeinterpreter.v1`) against the real cost line items. See [ADR 0010](docs/decisions/0010-code-interpreter-for-what-if-pricing.md). |
+| **Knowledge Base (FMKB)** | Explicit `faq_query` in the request (Phase 6b) | A curated `AWS::Bedrock::KnowledgeBase` (`agentcore.json`'s `knowledgeBases[]`), queried with plain `Retrieve` (vector search only, no generation call). See [ADR 0011](docs/decisions/0011-shared-faq-knowledge-base-not-per-actor-memory.md). |
+
+**Always configured, orthogonal to the review path:**
+
+| Service | What it does here |
+|---------|-------------------|
 | **Evaluations** | Two custom `llmAsAJudge` evaluators configured in `agentcore.json` — `CreateEvaluator` currently fails in the deployment account used for this sample (see Known Limitations), so `./deploy.sh` ships without them by default. Re-add by restoring the `evaluators` array once your account has model access for the evaluator's grading model. |
 | **Observability** | `AGENT_OBSERVABILITY_ENABLED`, OTEL instrumentation enabled |
-| **Code Interpreter** | Optional Phase 6a — what-if pricing. A Haiku-authored `compute(lines)` function runs in the AWS-managed sandbox (`aws.codeinterpreter.v1`) against the real cost line items. See [ADR 0010](docs/decisions/0010-code-interpreter-for-what-if-pricing.md). |
-| **Knowledge Base (FMKB)** | Optional Phase 6b — shared FAQ search. A curated `AWS::Bedrock::KnowledgeBase` (`agentcore.json`'s `knowledgeBases[]`), queried with plain `Retrieve` (vector search only, no generation call). See [ADR 0011](docs/decisions/0011-shared-faq-knowledge-base-not-per-actor-memory.md). |
 
 ## Known limitations
 

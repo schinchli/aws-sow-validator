@@ -30,23 +30,33 @@ AgentCore Runtime — source/agent/main.py, 5-phase entrypoint
   │            "awaiting_confirmation" is returned and nothing else runs until the
   │            caller resubmits with extraction_confirmed: true.
   │
-  ├─ AgentCore Memory (session.py) — SEMANTIC + SUMMARIZATION for cross-session
-  │  recall, plus USER_PREFERENCE for durable per-reviewer preferences (namespace
+  ├─ AgentCore Memory (session.py) — optional: provisioned and reachable, but
+  │  CloudWatch logs from real production runs show zero hits in a standard
+  │  single-shot review. SEMANTIC + SUMMARIZATION for cross-session recall, plus
+  │  USER_PREFERENCE for durable per-reviewer preferences (namespace
   │  pocvalidator/{actorId}/preferences), attached to the vision-extraction agent.
   │  Degrades gracefully (logged, not raised) if Memory is unavailable. Only
-  │  meaningful when actor_id is a real, stable identity per caller — the CLI path
-  │  derives it from partner_id/user_id in the payload; the web layer generates a
-  │  per-browser id client-side (localStorage) precisely so USER_PREFERENCE has
-  │  something real to attach to instead of every visitor sharing one identity.
+  │  engages when actor_id is a real, stable identity supplied across repeated
+  │  calls — the CLI path derives it from partner_id/user_id in the payload; the
+  │  web layer generates a per-browser id client-side (localStorage) precisely so
+  │  USER_PREFERENCE has something real to attach to instead of every visitor
+  │  sharing one identity.
   │
-  ├─ AgentCore Gateway — reached via MCPClient over streamablehttp_client, CUSTOM_JWT
-  │  authorizer (Cognito M2M, client_credentials, minted via
-  │  @requires_access_token(auth_flow="M2M")). One target: a Lambda running AWS Labs'
-  │  own awslabs.aws-documentation-mcp-server, so any "AWS recommends X" the agent
-  │  produces is grounded in a live documentation fetch, not model memory. Every
-  │  Gateway tool call is checked by a Cedar Policy Engine in ENFORCE mode
+  ├─ AgentCore Gateway — optional: the agent may call it, a standard review does
+  │  not (0 calls in the production runs this doc's numbers are drawn from).
+  │  Reached via MCPClient over streamablehttp_client, CUSTOM_JWT authorizer
+  │  (Cognito M2M, client_credentials, minted via AgentCore Identity's
+  │  @requires_access_token(auth_flow="M2M") — Identity mints this token only on
+  │  the Gateway path). One target: a Lambda running AWS Labs' own
+  │  awslabs.aws-documentation-mcp-server, so an "AWS recommends X" claim the
+  │  agent chooses to ground goes through a live documentation fetch, not model
+  │  memory. The response's `gateway_available: true` means reachable, not
+  │  called — Phases 2, 3 and 5 (validation, pricing, recommendations) answer
+  │  deterministically from `core/` without ever calling it. Every Gateway tool
+  │  call that does happen is checked by a Cedar Policy Engine in ENFORCE mode
   │  (read-only tools only — a validator that could mutate the account is a
-  │  different, far more dangerous product).
+  │  different, far more dangerous product); the Policy Engine is equally idle
+  │  when no tool call is made.
   │
   ├─ Phase 4a  SOW scoring (before validation, so it can feed the report)
   │             sow.score_heuristic() runs unconditionally and deterministically.
@@ -160,7 +170,7 @@ continuously.
 | Component | Pricing model | Typical cost at sample volumes |
 |---|---|---|
 | AgentCore Runtime + Bedrock (Sonnet vision + Haiku grading) | Per invocation | $0.02–0.08/review |
-| AgentCore Memory, Gateway | Per invocation / near-zero idle | Cents/month |
+| AgentCore Memory, Gateway (optional — 0 invocations in a standard review; see above) | Per invocation / near-zero idle | $0 unless a caller supplies a stable actor identity (Memory) or the agent calls out to the Gateway (Identity + Policy Engine ride along); cents/month if so |
 | AgentCore Code Interpreter (Phase 6a, optional) | Per-second active-resource consumption — $0.0895/vCPU-hour, $0.00945/GB-hour, 1-second minimum, billed only while a sandbox session is open | Fractions of a cent per what-if question (a few seconds of compute); zero when the feature isn't used |
 | AgentCore Knowledge Base (Phase 6b, optional) | Consumption-based — size of indexed data stored plus number of retrievals, no minimum commitment | Cents/month at this sample's scale (9 short FAQ docs); see the [Bedrock pricing page](https://aws.amazon.com/bedrock/pricing/) for current per-GB/per-retrieval rates, not repeated here to avoid going stale |
 | Lambda (web layer) | Per request + duration | Within the 1M-request free tier at demo volumes |

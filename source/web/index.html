@@ -182,6 +182,11 @@ input[type=email]:focus,input[type=password]:focus{outline:2px solid var(--accen
 .svcgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .svcchip{background:var(--accent-soft);color:var(--accent-ink);border-radius:99px;padding:5px 13px;
   font-size:12.5px;font-weight:650}
+.svcchip.optional{background:transparent;border:1px dashed var(--line);color:var(--ink-3);
+  font-weight:600}
+.svcgrid-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--ink-3);margin:16px 0 6px}
+.svcgrid-label:first-of-type{margin-top:14px}
 .ctapanel{background:var(--accent-soft);border:1px solid var(--line);border-radius:12px;
   padding:18px 20px;margin-top:26px}
 .ctapanel h2{border-bottom:none;color:var(--accent-ink);margin-bottom:6px}
@@ -281,6 +286,30 @@ h3{font-size:12.5px;font-weight:750;letter-spacing:.09em;text-transform:uppercas
 .gatepanel p{margin:0 0 10px;color:var(--ink-2);font-size:14px;line-height:1.65}
 .gatepanel p.alt{color:var(--ink-3);font-size:13.5px}
 .gateactions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+
+/* --- privacy note near the upload control (not buried in the footer) --- */
+.privacynote{font-size:12.5px;line-height:1.55;color:var(--ink-2);background:var(--line-soft);
+  border-radius:8px;padding:9px 13px;margin:10px 0 0;max-width:640px}
+.privacynote strong{color:var(--ink)}
+
+/* --- upload progress (real XHR progress; four stage labels) --- */
+.uploadprogress{margin-top:12px;max-width:420px}
+.uploadprogress .stage{font-size:13px;font-weight:650;color:var(--ink-2);margin-bottom:6px}
+.uploadprogress .bar{height:8px;border-radius:99px;background:var(--line-soft);overflow:hidden;position:relative}
+.uploadprogress .fill{height:100%;background:var(--accent);width:0%;transition:width .15s linear}
+.uploadprogress.indeterminate .fill{width:40%!important;position:absolute;top:0;left:0;
+  animation:indet 1.1s ease-in-out infinite}
+.uploadprogress .pct{font-size:12px;color:var(--ink-3);margin-top:4px;font-variant-numeric:tabular-nums}
+@keyframes indet{0%{left:-40%}100%{left:100%}}
+@media (prefers-reduced-motion: reduce){.uploadprogress.indeterminate .fill{animation:none;left:0;width:70%!important}}
+
+/* --- coverage panel: what the server actually read --- */
+.coveragebanner{border-radius:10px;padding:12px 16px;font-size:13.5px;margin:4px 0}
+.coveragebanner.ok{background:var(--pass-bg);color:var(--pass)}
+.coveragebanner.low{background:var(--crit-bg);color:var(--crit);font-weight:700;border:1px solid var(--crit)}
+.unreadlist{margin:6px 0 0;padding-left:20px;color:var(--ink-2);font-size:13px;line-height:1.65}
+.unreadlist li{margin:4px 0}
+.unreadlist code{font-size:12px}
 </style>
 
 <nav class="sitenav" id="siteNav" aria-label="Section navigation">
@@ -368,14 +397,17 @@ h3{font-size:12.5px;font-weight:750;letter-spacing:.09em;text-transform:uppercas
 <section id="how-it-works">
 <h2>How it works</h2>
 <ol class="steps">
-  <li><span class="num">1</span><span class="txt"><strong>Upload a .docx</strong>
-    <span>Drag your SOW into the page, or choose a file — nothing leaves your browser yet.</span></span></li>
-  <li><span class="num">2</span><span class="txt"><strong>Deterministic checks run instantly</strong>
-    <span>Cost tally, brand scan, deprecated-service check, and Well-Architected gaps — no account,
-    no server round trip, no cost.</span></span></li>
-  <li><span class="num">3</span><span class="txt"><strong>Optional: agent-assisted review</strong>
-    <span>Sign in for a deeper pass on Amazon Bedrock AgentCore Runtime — integration verdicts,
-    a priced cost estimate, and a scored SOW rubric.</span></span></li>
+  <li><span class="num">1</span><span class="txt"><strong>Local preview — no account needed</strong>
+    <span>Drag your SOW into the page. It's parsed in your browser and nothing is uploaded — cost
+    tally, brand scan, deprecated-service check, and Well-Architected gaps run instantly, with no
+    server round trip and no cost.</span></span></li>
+  <li><span class="num">2</span><span class="txt"><strong>Sign in to upload the whole file</strong>
+    <span>The original .docx is uploaded to Amazon S3 and extracted server-side — tables, headers,
+    footers, footnotes, and the embedded architecture diagram are all captured, with a measured
+    coverage report before validation runs.</span></span></li>
+  <li><span class="num">3</span><span class="txt"><strong>Agent-assisted review</strong>
+    <span>A deeper pass on Amazon Bedrock AgentCore Runtime — integration verdicts, a priced cost
+    estimate, and a scored SOW rubric.</span></span></li>
 </ol>
 </section>
 
@@ -440,26 +472,23 @@ h3{font-size:12.5px;font-weight:750;letter-spacing:.09em;text-transform:uppercas
     <img src="architecture.svg" loading="lazy" alt="Architecture diagram of AWS SOW Validator: Amazon
       CloudFront and AWS WAF in front of an Amazon S3-hosted static site; Amazon Cognito for
       authentication; signed API requests routed through AWS Lambda; Lambda invoking Amazon Bedrock
-      AgentCore Runtime, which uses AgentCore Memory, Gateway, Identity, Policy Engine and Code
-      Interpreter alongside Amazon Nova on Bedrock and Bedrock Knowledge Bases; results and run counters
-      stored in Amazon DynamoDB.">
+      AgentCore Runtime and Amazon Nova on Bedrock for every review, with AgentCore Memory, Gateway,
+      Identity, Policy Engine, Code Interpreter and Bedrock Knowledge Bases provisioned and reachable
+      for optional paths (what-if pricing, FAQ search, tool-calling); results and run counters stored
+      in Amazon DynamoDB.">
   </a>
 </div>
 <p class="diagram-caption">Figure: AWS SOW Validator request and review path. Scroll to see the full
   diagram, or click it to open the full-size image in a new tab.</p>
-<p class="meta" style="margin-top:8px">Request path: CloudFront + WAF + S3 (static site) → Cognito
-  (authentication) → Lambda (API + rule packs) → Bedrock AgentCore Runtime (Memory, Gateway, Identity,
-  Policy Engine, Code Interpreter) → Amazon Nova on Bedrock + Bedrock Knowledge Bases → DynamoDB
-  (results, quotas).</p>
+<p class="meta" style="margin-top:8px">Request path, every review: CloudFront + WAF + S3 (static
+  site) → Cognito (authentication) → Lambda (API + rule packs) → Bedrock AgentCore Runtime → Amazon
+  Nova on Bedrock → DynamoDB (results, quotas). AgentCore Gateway, Memory, Identity, Policy Engine,
+  Code Interpreter and Bedrock Knowledge Bases are provisioned and reachable in the same deployment,
+  but a standard review invokes none of them — see below for what turns each one on.</p>
+<p class="svcgrid-label">Used in every review</p>
 <div class="svcgrid">
-  <span class="svcchip">Amazon Bedrock</span>
+  <span class="svcchip">Amazon Bedrock (Amazon Nova)</span>
   <span class="svcchip">Bedrock AgentCore Runtime</span>
-  <span class="svcchip">AgentCore Memory</span>
-  <span class="svcchip">AgentCore Gateway</span>
-  <span class="svcchip">AgentCore Identity</span>
-  <span class="svcchip">AgentCore Policy Engine</span>
-  <span class="svcchip">AgentCore Code Interpreter</span>
-  <span class="svcchip">Bedrock Knowledge Bases</span>
   <span class="svcchip">Amazon CloudFront</span>
   <span class="svcchip">Amazon S3</span>
   <span class="svcchip">AWS Lambda</span>
@@ -467,17 +496,27 @@ h3{font-size:12.5px;font-weight:750;letter-spacing:.09em;text-transform:uppercas
   <span class="svcchip">Amazon Cognito</span>
   <span class="svcchip">AWS WAF</span>
 </div>
+<p class="svcgrid-label">Available for optional paths</p>
+<div class="svcgrid">
+  <span class="svcchip optional" title="Triggered by an explicit what-if pricing question">AgentCore Code Interpreter</span>
+  <span class="svcchip optional" title="Triggered by an explicit FAQ search">Bedrock Knowledge Bases</span>
+  <span class="svcchip optional" title="Called only if the agent chooses to ground a recommendation in live AWS docs">AgentCore Gateway</span>
+  <span class="svcchip optional" title="Engages only with a stable reviewer identity across sessions">AgentCore Memory</span>
+  <span class="svcchip optional" title="Mints the Gateway's OAuth token — only on the Gateway path">AgentCore Identity</span>
+  <span class="svcchip optional" title="Enforces only when a Gateway tool call is made">AgentCore Policy Engine</span>
+</div>
 </section>
 
 <section id="validate">
 <h2>Validate your SOW</h2>
-<p class="sub">Drop a partner SOW to run the full deterministic gate: the gap-check
-evaluator, the AWS SOW Validator scoring rubric (SOW-01…09), brand-contamination scan, and a
-to-the-cent cost-table tally. Deterministic checks run entirely in this page — your document is
-parsed in the browser and is never uploaded for them. Sign in to use the validator; hosted sign-up
-is limited to <code>@amazon.com</code> addresses and
-<code>schinchli@gmail.com</code>, and each verified account gets one free review — everyone else,
-deploy your own copy below, no waitlist, no quota.</p>
+<p class="sub">Drop a partner SOW below for an instant local preview: the gap-check evaluator, the AWS
+SOW Validator scoring rubric (SOW-01…09), brand-contamination scan, and a to-the-cent cost-table
+tally, all parsed in your browser with nothing uploaded. Sign in for the full server-side review —
+the original .docx is uploaded to Amazon S3 and extracted there, so tables, headers, footers,
+footnotes and the embedded architecture diagram are all captured, with a measured coverage report
+before validation runs. Hosted sign-up is limited to <code>@amazon.com</code> addresses and
+<code>schinchli@gmail.com</code>, and each verified account gets one free full review — everyone
+else, deploy your own copy below, no waitlist, no quota.</p>
 
 <div class="modal-backdrop" id="authModal" hidden role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
 <div class="modal">
@@ -489,7 +528,8 @@ deploy your own copy below, no waitlist, no quota.</p>
 <section id="authSec" class="authcard">
   <div id="authSignIn">
     <h3>Sign in</h3>
-    <p class="sub">Needed only for "Run full agent review" — deterministic checks below never require an account.</p>
+    <p class="sub">Needed only for "Run full agent review", which uploads the original .docx to S3 —
+    the local preview below never requires an account and never uploads anything.</p>
     <form id="signInForm" autocomplete="on">
       <input type="email" id="siEmail" placeholder="Email" autocomplete="username" required>
       <input type="password" id="siPassword" placeholder="Password" autocomplete="current-password" required>
@@ -560,16 +600,22 @@ deploy your own copy below, no waitlist, no quota.</p>
 
 
 <div id="validateGate" class="gatepanel">
-  <h3>Sign in to validate a SOW</h3>
-  <p>Uploading a Scope of Work requires a verified account. Sign-in on this hosted
-     instance is limited to <strong><code>@amazon.com</code></strong> addresses and
-     <strong><code>schinchli@gmail.com</code></strong>. Each verified account gets one
-     free agent-assisted review.</p>
-  <p class="alt">Using any other email address? You are not locked out — the whole project
-     is open source. Deploy your own copy into your own AWS account in one command, with no
-     allowlist and no quota.</p>
+  <h3>Two ways to check a SOW here</h3>
+  <p><strong>Local preview — no account:</strong> drop a file below and the deterministic rule pack
+     (cost tally, brand scan, deprecated services, SOW score) runs entirely in your browser. The
+     document is parsed client-side and <strong>nothing is uploaded</strong>.</p>
+  <p><strong>Full server-side review — sign in:</strong> uploads the original .docx to Amazon S3 so
+     tables, headers, footers, footnotes, and the embedded architecture diagram are all extracted —
+     not just the ~24&nbsp;KB of locally-parsed text — with a measured coverage report before
+     validation runs. The file is encrypted at rest and deleted by an S3 lifecycle rule after 7
+     days. Sign-in on this hosted instance is limited to <strong><code>@amazon.com</code></strong>
+     addresses and <strong><code>schinchli@gmail.com</code></strong>; each verified account gets one
+     free full review.</p>
+  <p class="alt">Using any other email address? You are not locked out of the local preview, and
+     the whole project is open source. Deploy your own copy into your own AWS account in one
+     command, with no allowlist and no quota, for the full upload-based review.</p>
   <div class="gateactions">
-    <button class="btn" id="gateSignIn" type="button">Sign in</button>
+    <button class="btn" id="gateSignIn" type="button">Sign in for the full review</button>
     <a class="btn ghost" href="#deploy">Deploy your own &rarr;</a>
     <a class="btn ghost" href="https://github.com/schinchli/aws-sow-validator" target="_blank" rel="noopener">View on GitHub</a>
   </div>
@@ -577,9 +623,16 @@ deploy your own copy below, no waitlist, no quota.</p>
 <div id="validateTool" hidden>
 <div id="drop" tabindex="0" role="button" aria-label="Drop a SOW file or click to choose">
   <div class="big">Drop the SOW here — .docx</div>
-  <div class="hint">or click to choose a file. Word <code>.docx</code> only, up to <span id="maxMb">5</span> MB. For a PDF, copy the text and use paste instead.</div>
+  <div class="hint">or click to choose a file — this runs an instant local preview, nothing is
+  uploaded. Word <code>.docx</code> only, up to <span id="maxMb">5</span> MB. For a PDF, copy the
+  text and use paste instead. Sign in and click "Run full agent review" below to upload the file
+  for the deeper, server-extracted read.</div>
   <input type="file" id="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
 </div>
+<p class="privacynote" id="privacyNote"><strong>Privacy:</strong> the local preview above parses
+  your file in the browser and uploads nothing. Signing in and running the full review uploads the
+  original .docx to Amazon S3, where it is encrypted at rest and automatically deleted after 7 days
+  by a lifecycle rule.</p>
 <button class="paste-toggle" id="pasteToggle">…or paste the SOW text</button>
 <span style="margin:0 6px;color:var(--ink-3)">·</span>
 <button class="paste-toggle" id="driveBtn">…or browse the Google Drive folder</button>
@@ -594,6 +647,21 @@ deploy your own copy below, no waitlist, no quota.</p>
 <textarea id="pasteBox" placeholder="Paste the full SOW text here (including cost table rows), then press Validate."></textarea>
 <div style="margin-top:10px"><button class="btn" id="runPaste" style="display:none">Validate pasted text</button></div>
 <div class="err" id="err"></div>
+<div id="agentActions" hidden>
+  <div class="actions">
+    <label class="sub" style="display:inline-flex;align-items:center;gap:6px;margin-right:8px">
+      <input type="checkbox" id="detOnly"> ⚡ Deterministic only (rule packs, no model)</label>
+    <button class="btn" id="agentBtn">Run full agent review</button>
+    <button class="btn ghost" id="dl" style="display:none">Download report (.md)</button>
+    <button class="btn ghost" id="reset">Validate another SOW</button>
+  </div>
+  <div id="uploadProgress" class="uploadprogress" hidden>
+    <div class="stage" id="uploadStage"></div>
+    <div class="bar"><div class="fill" id="uploadFill" style="width:0%"></div></div>
+    <div class="pct" id="uploadPct"></div>
+  </div>
+</div>
+</div><!-- /#validateTool -->
 </section>
 
 <div id="report">
@@ -620,13 +688,6 @@ deploy your own copy below, no waitlist, no quota.</p>
     <details><summary id="passSummary"></summary><ul id="passList"></ul></details>
   </section>
 
-  <div class="actions">
-    <label class="sub" style="display:inline-flex;align-items:center;gap:6px;margin-right:8px">
-      <input type="checkbox" id="detOnly"> ⚡ Deterministic (instant, no model)</label>
-    <button class="btn" id="agentBtn">Run full agent review</button>
-    <button class="btn ghost" id="dl" style="display:none">Download report (.md)</button>
-    <button class="btn ghost" id="reset">Validate another SOW</button>
-  </div>
   <p class="agentnote" id="agentDisabledNote" style="display:none">This install runs deterministic checks
     only — no AgentCore/Nova runtime is configured. See the repository README to enable the full agent
     review path.</p>
@@ -648,6 +709,13 @@ deploy your own copy below, no waitlist, no quota.</p>
     <div class="sub" id="aMeta" style="margin-top:6px"></div>
     <div id="aLenses" style="margin-top:10px"></div>
     <div class="chips" id="aChips"></div>
+    <section id="coverageSec" style="display:none;margin-top:14px">
+      <h3 style="margin-top:0">Document coverage — what the server actually read</h3>
+      <div class="coveragebanner" id="coverageBanner" style="display:none"></div>
+      <div class="tally" id="coverageTally" style="margin-top:10px"></div>
+      <div class="tblwrap" style="margin-top:10px"><table id="coveragePartsTable"></table></div>
+      <div id="unreadPartsBox"></div>
+    </section>
     <div id="aFindings" style="margin-top:12px"></div>
     <h3 style="margin-top:20px">Deterministic cost estimate</h3>
     <div class="tally" id="aCostSummary"></div>
@@ -666,7 +734,6 @@ deploy your own copy below, no waitlist, no quota.</p>
   </section>
 
   <div class="meta" id="meta"></div>
-</div>
 
 <section id="deploy" class="ctapanel">
 <h2>Deploy in your AWS account</h2>
@@ -1010,6 +1077,9 @@ function scoreSOW(text){
 /* ========== UI wiring ========== */
 const $=id=>document.getElementById(id);
 let lastReport=null;
+// Set once a file has been uploaded to S3 for the current lastReport, so the
+// "confirm extracted services" round trip doesn't re-upload the same file.
+let lastUploadKey=null;
 
 /* ========== Auth — Cognito Identity Provider REST API, direct from browser ========== */
 const AUTH_TOKEN_KEY="pv_id_token", AUTH_EXP_KEY="pv_id_token_exp", AUTH_EMAIL_KEY="pv_email";
@@ -1126,8 +1196,9 @@ function sessionExpired(msg){
 }
 function renderNavAuth(){
   const signedIn=isSignedIn();
-  // The upload tool only exists for signed-in users; everyone else sees the gate,
-  // which points them at deploying their own copy rather than a dead end.
+  // Explicit product requirement: the upload tool is shown ONLY to signed-in
+  // users. Signed-out visitors see #validateGate, which explains who may sign
+  // in and routes everyone else to deploying their own copy.
   const tool=$("validateTool"), gate=$("validateGate");
   if(tool) tool.hidden=!signedIn;
   if(gate) gate.hidden=signedIn;
@@ -1371,6 +1442,12 @@ $("runPaste").addEventListener("click",()=>{
   validate(v,"pasted text");});
 $("reset").addEventListener("click",()=>{
   $("report").style.display="none"; $("err").style.display="none";
+  const sm=$("sample"); if(sm) sm.hidden=false;
+  const sn=document.querySelector('#navLinks a[href="#sample"]'); if(sn) sn.hidden=false;
+  const aa=$("agentActions"); if(aa) aa.hidden=true;
+  hideUploadProgress();
+  lastUploadKey=null;
+  const cs=$("coverageSec"); if(cs) cs.style.display="none";
   fileIn.value=""; window.scrollTo({top:0});});
 function showErr(msg){const e=$("err");e.textContent=msg;e.style.display="block";}
 // Server is the authority (it enforces the same cap and returns limit_bytes on
@@ -1393,16 +1470,28 @@ async function handleFile(f){
     return;
   }
   try{
-    validate(await docxToText(await f.arrayBuffer()),f.name);
+    // Local preview only: parsed client-side, nothing uploaded here. The raw
+    // File is kept on lastReport so "Run full agent review" can upload the
+    // original .docx (not just this locally-extracted text) once signed in.
+    validate(await docxToText(await f.arrayBuffer()),f.name,f);
   }catch(err){showErr("Could not read that file: "+err.message);}
 }
-function validate(text,srcName){
+function validate(text,srcName,file){
   const client=$("client").value.trim();
   const {findings,passed,tallyInfo}=runChecks(text,client);
   const score=scoreSOW(text);
   render(findings,passed,tallyInfo,score,srcName,client);
-  lastReport={findings,passed,tallyInfo,score,srcName,client,text,when:new Date().toLocaleString()};
+  lastReport={findings,passed,tallyInfo,score,srcName,client,text,when:new Date().toLocaleString(),file:file||null};
+  // A new preview invalidates any previous upload — never reuse a stale key.
+  lastUploadKey=null;
+  hideUploadProgress();
+  const cs=$("coverageSec"); if(cs) cs.style.display="none";
   $("confirmSec").style.display="none"; $("agentSec").style.display="none";
+  // A real result replaces the shop window: keep one report on screen at a time.
+  const sample=$("sample"); if(sample) sample.hidden=true;
+  const acts=$("agentActions"); if(acts) acts.hidden=false;
+  const sampleNav=document.querySelector('#navLinks a[href="#sample"]');
+  if(sampleNav) sampleNav.hidden=true;
 }
 const SEV_ORDER={CRITICAL:0,HIGH:1,MEDIUM:2,LOW:3};
 function render(findings,passed,tally,score,src,client){
@@ -1519,9 +1608,83 @@ async function invokeApi(body){
   return {resp,data};
 }
 let pendingExtraction=null;
-function baseBody(){
-  return {sow_text:lastReport.text, segment:$("segment").value,
-          industry:$("industry").value, browser_id:browserId()};
+const DOCX_MIME="application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+/* ---- upload progress UI: requesting URL → uploading → extracting → validating ---- */
+function setUploadStage(label,frac){
+  const box=$("uploadProgress"); if(!box) return;
+  box.hidden=false;
+  $("uploadStage").textContent=label;
+  if(frac==null){
+    box.classList.add("indeterminate");
+    $("uploadPct").textContent="";
+  }else{
+    box.classList.remove("indeterminate");
+    const pct=Math.max(0,Math.min(100,Math.round(frac*100)));
+    $("uploadFill").style.width=pct+"%";
+    $("uploadPct").textContent=pct+"%";
+  }
+}
+function hideUploadProgress(){
+  const box=$("uploadProgress"); if(!box) return;
+  box.hidden=true; box.classList.remove("indeterminate");
+  $("uploadFill").style.width="0%"; $("uploadPct").textContent="";
+}
+
+/* ---- Step 1: presign — auth via X-Id-Token (CloudFront OAC owns Authorization) ---- */
+async function requestUploadUrl(file){
+  const tok=getIdToken();
+  if(!tok){ sessionExpired("Sign in to upload a SOW for the full review."); throw new Error("not_signed_in"); }
+  const resp=await fetch("/api/upload-url",{method:"POST",
+    headers:{"Content-Type":"application/json","X-Id-Token":tok},
+    body:JSON.stringify({filename:file.name,content_type:DOCX_MIME,size:file.size})});
+  let data={}; try{data=await resp.json();}catch{}
+  if(resp.status===401 && !getIdToken()){ sessionExpired(); throw new Error("not_signed_in"); }
+  if(!resp.ok){
+    const err=new Error(data.message||`Could not get an upload URL (HTTP ${resp.status}).`);
+    err.status=resp.status; err.data=data; throw err;
+  }
+  if(!data.upload_url||!data.fields||!data.key){
+    const err=new Error("The server didn't return an upload URL — try again.");
+    err.status=resp.status; err.data=data; throw err;
+  }
+  return data;
+}
+/* ---- Step 2: presigned POST to S3 — multipart form, XHR for real progress.
+   The server mints a POST policy (not a PUT URL) because only a POST policy can
+   enforce content-length-range server-side. The `file` field MUST come last:
+   S3 ignores anything after it. ---- */
+function postFileToS3(presign,file,onProgress){
+  return new Promise((resolve,reject)=>{
+    const form=new FormData();
+    Object.entries(presign.fields||{}).forEach(([k,v])=>form.append(k,v));
+    form.append("file",file);                       // must be appended last
+    const xhr=new XMLHttpRequest();
+    xhr.open("POST",presign.upload_url);
+    if(xhr.upload) xhr.upload.onprogress=e=>{ if(e.lengthComputable&&onProgress) onProgress(e.loaded/e.total); };
+    xhr.onload=()=>{
+      if(xhr.status>=200&&xhr.status<300){ if(onProgress) onProgress(1); resolve(); }
+      else reject(Object.assign(new Error("S3 rejected the upload"),{status:xhr.status,body:xhr.responseText}));
+    };
+    xhr.onerror=()=>reject(Object.assign(new Error("Network error during upload"),{status:0,body:""}));
+    xhr.send(form);                                  // no Content-Type header: the browser sets the boundary
+  });
+}
+function s3PutErrMessage(status,bodyText){
+  if(status===413) return "That upload was rejected as too large — the presigned URL enforces a "+
+    "server-side size cap. Trim the document, or use the local paste preview instead.";
+  if(status===403){
+    const codeM=/<Code>([^<]+)<\/Code>/.exec(bodyText||"");
+    const code=codeM?codeM[1]:"";
+    if(/EntityTooLarge/i.test(code)) return "S3 rejected the upload: the file is larger than the "+
+      "size condition on the presigned link. Trim the document and click \"Run full agent review\" "+
+      "again for a fresh link.";
+    return "S3 rejected the upload — the presigned link likely expired or its conditions weren't "+
+      "met. Click \"Run full agent review\" again to request a fresh link.";
+  }
+  if(status===0) return "The upload was interrupted by a network error before it reached S3. "+
+    "Check your connection and try again.";
+  return `S3 rejected the upload (HTTP ${status}). Try again, or use the local paste preview instead.`;
 }
 function agentBusy(on,label){
   const b=$("agentBtn"); b.disabled=on; b.textContent=on?(label||"Reviewing…"):"Run full agent review";
@@ -1540,6 +1703,11 @@ function agentErr(msg,status,data){
     }
     return;
   }
+  if(status===403){
+    showErr((data&&data.message) ? `Request refused: ${data.message}`
+      : "The server refused that request (403) — your account isn't authorized for this action.");
+    return;
+  }
   if(status===402){
     data=data||{};
     ME=Object.assign(ME||{},{runs_used:data.runs_used,free_runs:data.free_runs});
@@ -1555,37 +1723,67 @@ function agentErr(msg,status,data){
   showErr(msg);
 }
 $("agentBtn").addEventListener("click",async()=>{
-  if(!lastReport||!lastReport.text){showErr("Validate a SOW first — the agent reviews the extracted text.");return;}
+  if(!lastReport||!lastReport.text){showErr("Validate a SOW first — drop a .docx above for a local preview, then run the full review.");return;}
   $("err").style.display="none";
   if(!isSignedIn()){
     showAuthPanel("signin");
     $("authSec").scrollIntoView({behavior:"smooth",block:"start"});
-    showErr("Sign in to run the full agent review — the deterministic checks above never require an account.");
+    showErr("Sign in to run the full agent review — the local preview above never requires an account or uploads anything.");
     return;
   }
-  if($("detOnly").checked){
-    // Tier 1: rule packs + pricing + heuristic SOW score run inside the web
-    // Lambda — grounded service detection, no model, sub-second, ~$0.
-    agentBusy(true,"Deterministic review…");
-    try{
-      const {resp,data}=await invokeApi({...baseBody(),mode:"deterministic"});
-      if(!resp.ok||data.status==="error"){agentErr(data.message||`Request failed (HTTP ${resp.status}).`,resp.status,data);return;}
-      if(data.status==="complete"){renderAgent(data);fetchMe();return;}
-      showErr("Unexpected response — try again.");
-    }catch(e){if(e.message!=="not_signed_in") showErr("Deterministic review failed: "+e.message);}
-    finally{agentBusy(false);}
+  if(!lastReport.file){
+    showErr("The full review uploads the original .docx file, and this preview came from pasted "+
+      "text or a Drive fetch instead. Drop the .docx file itself above to run the full server-side review.");
     return;
   }
-  agentBusy(true,"Extracting services…");
+  await runUploadAndInvoke(lastReport.file,$("detOnly").checked?"deterministic":undefined);
+});
+/* ---- The whole upload state machine: presign → PUT → extract+validate ---- */
+async function runUploadAndInvoke(file,mode){
+  agentBusy(true,mode?"Deterministic review…":"Reviewing…");
   try{
-    const {resp,data}=await invokeApi(baseBody());
-    if(!resp.ok||data.status==="error"){agentErr(data.message||`Request failed (HTTP ${resp.status}).`,resp.status,data);return;}
+    let uploadKey=lastUploadKey;
+    if(!uploadKey){
+      setUploadStage("Requesting upload URL…",null);
+      let presign;
+      try{ presign=await requestUploadUrl(file); }
+      catch(e){
+        if(e.message!=="not_signed_in") agentErr(e.message,e.status,e.data);
+        return;
+      }
+      setUploadStage("Uploading…",0);
+      try{ await postFileToS3(presign,file,frac=>setUploadStage("Uploading…",frac)); }
+      catch(e){ showErr(s3PutErrMessage(e.status,e.body)); return; }
+      uploadKey=presign.key;
+      lastUploadKey=uploadKey;
+    }
+    setUploadStage("Extracting tables, headers, footers, images…",null);
+    const midway=setTimeout(()=>setUploadStage("Validating…",null),1400);
+    let resp,data;
+    try{
+      const body={upload_key:uploadKey,segment:$("segment").value,industry:$("industry").value,browser_id:browserId()};
+      if(mode) body.mode=mode;
+      ({resp,data}=await invokeApi(body));
+    } finally { clearTimeout(midway); }
+    if(!resp.ok||data.status==="error"){
+      if(data.error_code==="extraction_failed"||/extract/i.test(data.message||"")){
+        showErr(`Extraction failed: ${data.message||"the server couldn't read the uploaded document"}. `+
+          "Confirm it's an uncorrupted .docx exported from Word, or use the local paste preview instead.");
+      }else{
+        agentErr(data.message||`Request failed (HTTP ${resp.status}).`,resp.status,data);
+      }
+      return;
+    }
     if(data.status==="awaiting_confirmation"){renderConfirm(data.extraction);return;}
     if(data.status==="complete"){renderAgent(data);fetchMe();return;}
     showErr("Unexpected agent response — try again.");
-  }catch(e){if(e.message!=="not_signed_in") showErr("Agent call failed: "+e.message);}
-  finally{agentBusy(false);}
-});
+  }catch(e){
+    if(e.message!=="not_signed_in") showErr("Upload/review failed: "+e.message);
+  }finally{
+    agentBusy(false);
+    hideUploadProgress();
+  }
+}
 function renderConfirm(ex){
   pendingExtraction=ex||{services:[],edges:[],unmatched:[],notes:""};
   const grounding=pendingExtraction.grounding||{};
@@ -1610,9 +1808,11 @@ $("confirmBtn").addEventListener("click",async()=>{
   const checked=[...$("svcList").querySelectorAll("input:checked")].map(i=>i.dataset.svc);
   if(!checked.length){showErr("Keep at least one service ticked, or cancel.");return;}
   const edges=pendingExtraction.edges.filter(e=>checked.includes(e[0])&&checked.includes(e[1]));
+  if(!lastUploadKey){showErr("The upload reference was lost — click \"Run full agent review\" again.");return;}
   agentBusy(true,"Running full review…");
   try{
-    const {resp,data}=await invokeApi({...baseBody(),services:checked,edges,extraction_confirmed:true});
+    const {resp,data}=await invokeApi({upload_key:lastUploadKey,segment:$("segment").value,
+      industry:$("industry").value,browser_id:browserId(),services:checked,edges,extraction_confirmed:true});
     if(!resp.ok||data.status==="error"){agentErr(data.message||`Request failed (HTTP ${resp.status}).`,resp.status,data);return;}
     if(data.status==="complete"){$("confirmSec").style.display="none";renderAgent(data);fetchMe();return;}
     showErr("Unexpected agent response — try again.");
@@ -1688,6 +1888,48 @@ $("driveAllBtn").addEventListener("click",async()=>{
 });
 
 const A_SEV={critical:"crit",high:"high",medium:"med",low:"low"};
+// Renders what the server actually read from the uploaded .docx — before the
+// findings, per the coverage report requirement. unread_parts are shown
+// honestly, never hidden or minimised; low coverage is made visually obvious.
+function renderCoverage(cov){
+  const sec=$("coverageSec");
+  if(!cov){ if(sec) sec.style.display="none"; return; }
+  if(sec) sec.style.display="block";
+  const pct=typeof cov.coverage_pct==="number"?cov.coverage_pct:null;
+  const floor=typeof cov.floor_pct==="number"?cov.floor_pct:60;
+  const low=cov.below_floor!=null?!!cov.below_floor:(pct!=null&&pct<floor);
+  const banner=$("coverageBanner");
+  if(pct==null){
+    banner.style.display="none";
+  }else if(low){
+    banner.style.display="block";
+    banner.className="coveragebanner low";
+    banner.innerHTML=`⚠️ Coverage is <b>${pct.toFixed(1)}%</b>, below the ${floor}% reliability floor `+
+      `— this review may be based on a <b>partial read</b> of the document. Treat findings as provisional.`;
+  }else{
+    banner.style.display="block";
+    banner.className="coveragebanner ok";
+    banner.innerHTML=`✓ Coverage <b>${pct.toFixed(1)}%</b> of the document was read and classified.`;
+  }
+  const counts=cov.counts||{};
+  const labels={paragraphs:"Paragraphs",table_rows:"Table rows",table_cells:"Table cells",
+    headers:"Headers",footers:"Footers",footnotes:"Footnotes",images:"Images"};
+  const countCells=Object.keys(labels).filter(k=>counts[k]!=null).map(k=>cell(labels[k],counts[k]));
+  $("coverageTally").innerHTML=(pct!=null?cell("Coverage",pct.toFixed(1)+"%"):"")+countCells.join("");
+  const parts=cov.parts||[];
+  $("coveragePartsTable").innerHTML=parts.length
+    ?"<tr><th>Part</th><th>Classification</th><th>Characters</th></tr>"+
+      parts.map(p=>`<tr><td>${esc(p.name||"")}</td><td>${esc(p.classification||"")}</td>`+
+        `<td class="num">${(+p.characters||0).toLocaleString()}</td></tr>`).join("")
+    :"";
+  const unread=cov.unread_parts||[];
+  $("unreadPartsBox").innerHTML=unread.length
+    ?`<p class="sub" style="margin:10px 0 6px"><b>${unread.length} part${unread.length>1?"s":""} `+
+      `not read:</b></p><ul class="unreadlist">${unread.map(u=>
+        `<li><code>${esc(u.name||u.part||"unknown part")}</code> — ${esc(u.reason||"no reason given")}</li>`
+      ).join("")}</ul>`
+    :`<p class="sub" style="margin:10px 0 0;color:var(--pass)">Every part of the document was read.</p>`;
+}
 function renderAgent(d){
   const vres=(d.verdict&&d.verdict.result)||"";
   const ok=/ready/i.test(vres)&&!/not/i.test(vres);
@@ -1711,6 +1953,7 @@ function renderAgent(d){
   $("aChips").innerHTML=Object.entries(c).map(([k,v])=>{
     const cl=A_SEV[k.toLowerCase()]||"low";
     return `<span class="chip c-${cl}">${esc(k)} ${v}</span>`;}).join("");
+  renderCoverage(d.coverage);
   $("aFindings").innerHTML=(d.findings||[]).map(f=>{
     const cl=A_SEV[(f.severity||"").toLowerCase()]||"med";
     return `<div class="finding f-${cl}"><div class="stripe"></div><div class="body">

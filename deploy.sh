@@ -2,6 +2,10 @@
 # Deploy the POC Validator to your AWS account via the AgentCore CLI.
 set -euo pipefail
 
+# The AgentCore CLI has exited 0 after refusing to deploy (bad dockerfile path,
+# wrong working directory). Compare the runtime version before/after and fail
+# loudly if nothing actually shipped.
+
 command -v agentcore >/dev/null 2>&1 || {
   echo "AgentCore CLI not found. Install it with: npm install -g @aws/agentcore" >&2
   exit 1
@@ -17,7 +21,7 @@ if [[ ! -f "$AGENTCORE_DIR/aws-targets.json" ]]; then
 fi
 
 echo "→ Validating configuration"
-(cd "$AGENTCORE_DIR" && agentcore validate)
+(cd "$(dirname "$AGENTCORE_DIR")" && agentcore validate)
 
 FAQ_BUCKET="poc-validator-faq-kb-$(aws sts get-caller-identity --query Account --output text)"
 if aws s3api head-bucket --bucket "$FAQ_BUCKET" >/dev/null 2>&1; then
@@ -34,7 +38,7 @@ else
 fi
 
 echo "→ Deploying (creates Runtime, Memory, Gateway, KnowledgeBase, PolicyEngine, Evaluators)"
-(cd "$AGENTCORE_DIR" && agentcore deploy --target "${1:-dev}")
+(cd "$(dirname "$AGENTCORE_DIR")" && agentcore deploy --target "${1:-dev}")
 
 echo "→ Granting the runtime execution role Code Interpreter access (see docs/decisions/0010)"
 ./scripts/grant_code_interpreter_access.sh || echo "  (non-fatal — see script output; you can re-run it any time)"
@@ -54,7 +58,7 @@ echo "→ Re-syncing the FAQ knowledge base ingestion (safe to run even if nothi
 
 if echo "$KB_GRANT_OUTPUT" | grep -q "^PATCHED=true"; then
   echo "→ FAQ_KNOWLEDGE_BASE_ID changed — redeploying so the running container picks it up"
-  (cd "$AGENTCORE_DIR" && agentcore deploy --target "${1:-dev}")
+  (cd "$(dirname "$AGENTCORE_DIR")" && agentcore deploy --target "${1:-dev}")
 fi
 
 echo

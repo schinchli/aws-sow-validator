@@ -331,7 +331,7 @@ describe('PocValidatorWebStack', () => {
           USER_POOL_ID: Match.anyValue(),
           USER_POOL_CLIENT_ID: Match.anyValue(),
           USERS_TABLE: Match.anyValue(),
-          FREE_RUNS: '1',
+          FREE_RUNS: '3',
           SELF_HOST_URL: Match.anyValue(),
         }),
       },

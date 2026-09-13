@@ -34,6 +34,12 @@ class CriterionScore:
     band_label: str
     justification: str
     gap_fix: str = ""
+    # True only for the strongest heuristic case (see _heuristic_band's first
+    # branch): 3+ distinct signals in a substantive section. That evidence is
+    # strong enough that a model call adds no information, only cost, so this
+    # criterion is excluded from the model prompt entirely — see
+    # ambiguous_criteria() and grader_payload() below.
+    heuristic_confident: bool = False
 
     @property
     def weighted(self) -> float:
@@ -111,10 +117,11 @@ def _is_toc_occurrence(text_lower: str, idx: int) -> bool:
     return bool(_TOC_LINE_ENDING.search(text_lower[line_start:line_end]))
 
 
-def _best_window(
+def _best_window_span(
     text_lower: str, hits: list[str], signals: list[str], span: int = 600
-) -> str:
-    """Find the richest window around any occurrence of a hit signal.
+) -> tuple[int, int] | None:
+    """Find the (start, end) offsets of the richest window around any
+    occurrence of a hit signal, or None if there is no occurrence at all.
 
     A document's Table of Contents repeats section headings near the top of the
     file, so the *first* occurrence of a keyword is frequently a ToC line, not
@@ -122,43 +129,66 @@ def _best_window(
     any professionally-formatted document, which is nearly all of them. Instead,
     scan every occurrence of every hit, skip ones sitting on a ToC line, and
     keep the window with the most co-occurring signals, then the most words.
+
+    Offsets (rather than the substring itself) are returned so a caller can
+    slice the ORIGINAL-cased text at the same positions — this function only
+    sees the lower-cased text used for matching.
     """
-    best_window = ""
+    best_span: tuple[int, int] | None = None
     best_score = (-1, -1)
-    fallback_window = ""
+    fallback_span: tuple[int, int] | None = None
     for hit in hits:
         start = 0
         while True:
             idx = text_lower.find(hit, start)
             if idx == -1:
                 break
-            if not fallback_window:
-                fallback_window = text_lower[idx : idx + span]
+            if fallback_span is None:
+                fallback_span = (idx, idx + span)
             if not _is_toc_occurrence(text_lower, idx):
-                window = text_lower[idx : idx + span]
+                end = idx + span
+                window = text_lower[idx:end]
                 score = (
                     sum(1 for signal in signals if signal in window),
                     len(window.split()),
                 )
                 if score > best_score:
-                    best_score, best_window = score, window
+                    best_score, best_span = score, (idx, end)
             start = idx + len(hit)
     # Every occurrence was ToC-shaped (unusual, but possible) — fall back to
     # the first occurrence rather than scoring on an empty window.
-    return best_window or fallback_window
+    return best_span or fallback_span
 
 
-def _heuristic_band(text_lower: str, signals: list[str]) -> tuple[int, str]:
+def _best_window(
+    text_lower: str, hits: list[str], signals: list[str], span: int = 600
+) -> str:
+    """Text of the richest window — see _best_window_span for the logic."""
+    span_bounds = _best_window_span(text_lower, hits, signals, span)
+    if span_bounds is None:
+        return ""
+    start, end = span_bounds
+    return text_lower[start:end]
+
+
+def _heuristic_band(text_lower: str, signals: list[str]) -> tuple[int, str, bool]:
     """Score a criterion from keyword presence and surrounding substance.
 
     Deliberately conservative. Finding the phrase 'out of scope' proves the
     section exists, not that it is any good, so keyword presence alone never
     scores above Partial. Only density of distinct signals plus enough
     surrounding text lifts a criterion to Adequate.
+
+    Returns ``(band, justification, confident)``. ``confident`` is True only
+    for the first branch below (3+ distinct signals with a substantive
+    section) — the one case where the heuristic's own evidence is strong
+    enough that a model's opinion would add nothing. Every other branch,
+    including the other band-3 case, is left non-confident on purpose: those
+    are exactly the ambiguous calls a classifier should look at.
     """
     hits = [signal for signal in signals if signal in text_lower]
     if not hits:
-        return 0, "No matching language found in the document."
+        return 0, "No matching language found in the document.", False
 
     # Measure substance near the richest occurrence, not just the first one.
     window = _best_window(text_lower, hits, signals)
@@ -168,17 +198,23 @@ def _heuristic_band(text_lower: str, signals: list[str]) -> tuple[int, str]:
         return (
             3,
             f"Found {len(hits)} related signals with substantive surrounding text.",
+            True,
         )
     if len(hits) >= 2 and window_words > 100:
         return (
             3,
             f"Found {len(hits)} related signals with a substantial section around them.",
+            False,
         )
     if len(hits) >= 2:
-        return 2, f"Found {len(hits)} related signals, but limited detail around them."
+        return (
+            2,
+            f"Found {len(hits)} related signals, but limited detail around them.",
+            False,
+        )
     if window_words > 120:
-        return 2, "Referenced once, but within a substantial section."
-    return 1, "Referenced once, with little supporting detail."
+        return 2, "Referenced once, but within a substantial section.", False
+    return 1, "Referenced once, with little supporting detail.", False
 
 
 def score_heuristic(sow_text: str) -> SOWScore:
@@ -191,7 +227,7 @@ def score_heuristic(sow_text: str) -> SOWScore:
     scores: list[CriterionScore] = []
     for criterion in spec["criteria"]:
         signals = heuristics.get(criterion["id"], [])
-        band, justification = _heuristic_band(text_lower, signals)
+        band, justification, confident = _heuristic_band(text_lower, signals)
         scores.append(
             CriterionScore(
                 criterion_id=criterion["id"],
@@ -201,6 +237,7 @@ def score_heuristic(sow_text: str) -> SOWScore:
                 band_label=bands[band]["label"],
                 justification=justification,
                 gap_fix=criterion["gap_fix"].strip(),
+                heuristic_confident=confident,
             )
         )
 
@@ -254,4 +291,85 @@ def criteria_for_prompt() -> list[dict[str, str]]:
             "question": criterion["prompt"].strip(),
         }
         for criterion in spec["criteria"]
+    ]
+
+
+def criteria_evidence(sow_text: str, span: int = 600) -> list[dict[str, str]]:
+    """Per-criterion evidence windows, instead of handing the model the whole
+    document.
+
+    A production run measured this: the grader sent criteria JSON plus
+    ``sow_text[:60000]`` (~6K tokens for a real SOW) to the model on every
+    single pass, when each criterion only needs the passage(s) relevant to
+    it. This reuses the exact hit-scanning/ToC-skipping logic the heuristic
+    pass already uses (``_best_window_span``), so the model sees the same
+    text the heuristic scored — not a separately-chosen window that could
+    disagree with it.
+
+    A criterion with no matching signal in the document gets an empty
+    ``window`` — that IS the evidence (there is none), and the model should
+    band it 0/Absent rather than being handed unrelated text to guess from.
+
+    Returns one entry per criterion: ``{"id", "name", "window"}``.
+    """
+    spec = catalog.sow_criteria()
+    heuristics = spec["heuristics"]
+    text_lower = sow_text.lower()
+
+    evidence: list[dict[str, str]] = []
+    for criterion in spec["criteria"]:
+        signals = heuristics.get(criterion["id"], [])
+        hits = [signal for signal in signals if signal in text_lower]
+        window = ""
+        if hits:
+            span_bounds = _best_window_span(text_lower, hits, signals, span)
+            if span_bounds is not None:
+                start, end = span_bounds
+                # Slice the ORIGINAL-cased text at the offsets found on the
+                # lower-cased copy, so the model sees real capitalisation
+                # when it quotes the document back in its justification.
+                window = sow_text[start:end]
+        evidence.append(
+            {"id": criterion["id"], "name": criterion["name"], "window": window}
+        )
+    return evidence
+
+
+def ambiguous_criteria(score: SOWScore) -> list[str]:
+    """Criterion ids the heuristic pass was NOT confident about.
+
+    These are the only ones worth spending a model call on — see
+    CriterionScore.heuristic_confident for what "confident" means and why.
+    """
+    return [c.criterion_id for c in score.scores if not c.heuristic_confident]
+
+
+def grader_payload(
+    sow_text: str, score: SOWScore, span: int = 600
+) -> list[dict[str, str]]:
+    """Criteria + evidence to hand the model classifier.
+
+    Combines two cost cuts measured against a real SOW review:
+    - Only ambiguous criteria are included at all (heuristic-confident ones
+      are excluded — see ``ambiguous_criteria``).
+    - Each included criterion carries its own evidence window instead of the
+      full document (see ``criteria_evidence``).
+
+    Returns an empty list when every criterion was heuristic-confident —
+    callers should treat that as "no model call needed", not "call anyway".
+    """
+    ambiguous = set(ambiguous_criteria(score))
+    if not ambiguous:
+        return []
+    windows = {item["id"]: item["window"] for item in criteria_evidence(sow_text, span)}
+    spec = catalog.sow_criteria()
+    return [
+        {
+            "id": criterion["id"],
+            "name": criterion["name"],
+            "question": criterion["prompt"].strip(),
+            "evidence": windows.get(criterion["id"], ""),
+        }
+        for criterion in spec["criteria"]
+        if criterion["id"] in ambiguous
     ]

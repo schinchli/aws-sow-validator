@@ -28,7 +28,12 @@ import yaml
 # Whoever assembles ROOT's contents (a local checkout, the AgentCore
 # container image, or the web Lambda's local bundler) is responsible for
 # making sure a config/data/ and config/rules/ directory exist there.
-_root_env = os.getenv("POC_VALIDATOR_ROOT")
+# Accept both spellings. The CDK sets POCVALIDATOR_ROOT while this module
+# historically read POC_VALIDATOR_ROOT; the mismatch meant neither matched, the
+# parents[] fallback was used, and after the repository restructure that
+# resolved to /var instead of /var/task inside Lambda — every review failed with
+# FileNotFoundError on services.yaml, surfaced to the browser as a bare 502.
+_root_env = os.getenv("POCVALIDATOR_ROOT") or os.getenv("POC_VALIDATOR_ROOT")
 ROOT = Path(_root_env) if _root_env else Path(__file__).resolve().parents[3]
 DATA = ROOT / "config" / "data"
 RULES = ROOT / "config" / "rules"
