@@ -1,0 +1,1793 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AWS SOW Validator</title>
+<style>
+:root{
+  --accent:#7C3AED; --accent-soft:#EDE7FB; --accent-ink:#5B21B6;
+  --paper:#FAF9FC; --card:#FFFFFF; --ink:#1C1826; --ink-2:#5B5566; --ink-3:#8A8496;
+  --line:#E4E0EC; --line-soft:#EFECF5;
+  --crit:#C42847; --crit-bg:#FBEDF0; --high:#B45309; --high-bg:#FBF3E7;
+  --med:#2563EB; --med-bg:#EAF0FD; --low:#6B7280; --low-bg:#F1F2F4;
+  --pass:#15803D; --pass-bg:#EAF5EE;
+  --drop-bg:#F5F2FB; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --accent:#A78BFA; --accent-soft:#2A2140; --accent-ink:#C4B5FD;
+    --paper:#14111B; --card:#1D1927; --ink:#EDEAF4; --ink-2:#A9A3B8; --ink-3:#7C7690;
+    --line:#332D42; --line-soft:#272233;
+    --crit:#F0637F; --crit-bg:#371822; --high:#F0A24A; --high-bg:#33250F;
+    --med:#7AA5F8; --med-bg:#1B2740; --low:#9CA3AF; --low-bg:#26232E;
+    --pass:#5BBF7E; --pass-bg:#16281D;
+    --drop-bg:#201B2E;
+  }
+}
+:root[data-theme="dark"]{
+  --accent:#A78BFA; --accent-soft:#2A2140; --accent-ink:#C4B5FD;
+  --paper:#14111B; --card:#1D1927; --ink:#EDEAF4; --ink-2:#A9A3B8; --ink-3:#7C7690;
+  --line:#332D42; --line-soft:#272233;
+  --crit:#F0637F; --crit-bg:#371822; --high:#F0A24A; --high-bg:#33250F;
+  --med:#7AA5F8; --med-bg:#1B2740; --low:#9CA3AF; --low-bg:#26232E;
+  --pass:#5BBF7E; --pass-bg:#16281D;
+  --drop-bg:#201B2E;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:15px/1.55 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+h1{font-size:24px;font-weight:750;letter-spacing:-.02em;margin:0}
+h1 .k{color:var(--accent)}
+.sub{color:var(--ink-2);font-size:13.5px;margin:0 0 22px}
+.controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.controls label{font-size:12px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+input[type=text],select{background:var(--card);border:1px solid var(--line);color:var(--ink);
+  border-radius:8px;padding:8px 12px;font-size:14px}
+input[type=text]{min-width:200px}
+input[type=text]:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+.svc-item{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);
+  color:var(--accent-ink);border-radius:99px;padding:5px 13px;margin:3px;font-size:13px;font-weight:650}
+.svc-item input{accent-color:var(--accent)}
+.btn[disabled]{opacity:.55;cursor:wait}
+#drop{border:2px dashed var(--line);border-radius:14px;background:var(--drop-bg);
+  padding:38px 24px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+#drop.over{border-color:var(--accent);background:var(--accent-soft)}
+#drop:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#drop .big{font-size:16.5px;font-weight:650}
+#drop .hint{color:var(--ink-3);font-size:13px;margin-top:6px}
+.paste-toggle{background:none;border:none;color:var(--accent-ink);font-size:13px;
+  cursor:pointer;text-decoration:underline;padding:0;margin-top:12px}
+textarea{width:100%;min-height:160px;background:var(--card);border:1px solid var(--line);
+  color:var(--ink);border-radius:10px;padding:12px;font:12.5px/1.5 var(--mono);display:none;margin-top:12px}
+textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:8px;
+  padding:9px 18px;font-size:14px;font-weight:650;cursor:pointer}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.ghost{background:var(--card);color:var(--accent-ink);border:1px solid var(--line)}
+#report{display:none;margin-top:26px}
+.verdict{border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.verdict .word{font-size:19px;font-weight:800;letter-spacing:-.01em}
+.verdict .why{font-size:13.5px;opacity:.85}
+.v-rej{background:var(--crit-bg);color:var(--crit)}
+.v-fix{background:var(--high-bg);color:var(--high)}
+.v-cond{background:var(--med-bg);color:var(--med)}
+.v-ok{background:var(--pass-bg);color:var(--pass)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px}
+.chip{border-radius:99px;padding:4px 13px;font-size:12.5px;font-weight:700;
+  font-variant-numeric:tabular-nums}
+.c-crit{background:var(--crit-bg);color:var(--crit)} .c-high{background:var(--high-bg);color:var(--high)}
+.c-med{background:var(--med-bg);color:var(--med)} .c-low{background:var(--low-bg);color:var(--low)}
+.c-pass{background:var(--pass-bg);color:var(--pass)} .c-score{background:var(--accent-soft);color:var(--accent-ink)}
+section{margin-top:26px}
+h2{font-size:12.5px;font-weight:750;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line-soft)}
+.finding{display:grid;grid-template-columns:4px 1fr;gap:0 14px;background:var(--card);
+  border:1px solid var(--line-soft);border-radius:10px;margin-bottom:10px;overflow:hidden}
+.finding .stripe{border-radius:0}
+.f-crit .stripe{background:var(--crit)} .f-high .stripe{background:var(--high)}
+.f-med .stripe{background:var(--med)} .f-low .stripe{background:var(--low)}
+.finding .body{padding:12px 16px 12px 2px}
+.finding .head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.sev{font-size:10.5px;font-weight:800;letter-spacing:.08em;border-radius:5px;padding:2px 7px}
+.s-crit{background:var(--crit-bg);color:var(--crit)} .s-high{background:var(--high-bg);color:var(--high)}
+.s-med{background:var(--med-bg);color:var(--med)} .s-low{background:var(--low-bg);color:var(--low)}
+.finding .title{font-weight:680;font-size:14.5px}
+.finding .cat{color:var(--ink-3);font-size:12px}
+.finding .detail{color:var(--ink-2);font-size:13px;margin-top:6px}
+.finding .impact{font-size:12.5px;margin-top:6px;color:var(--ink-2)}
+.finding .impact b{color:var(--ink)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line-soft);
+  border-radius:10px;overflow:hidden;font-size:13.5px}
+.tblwrap{overflow-x:auto}
+th{background:var(--accent);color:#fff;text-align:left;padding:8px 12px;font-size:12px;
+  letter-spacing:.05em;text-transform:uppercase}
+td{padding:7px 12px;border-top:1px solid var(--line-soft);vertical-align:top}
+td.num{text-align:right;font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.band{font-size:11px;font-weight:750;border-radius:5px;padding:2px 8px;white-space:nowrap}
+.b-0,.b-1{background:var(--crit-bg);color:var(--crit)} .b-2{background:var(--high-bg);color:var(--high)}
+.b-3{background:var(--pass-bg);color:var(--pass)} .b-4{background:var(--accent-soft);color:var(--accent-ink)}
+.gapfix{color:var(--ink-2);font-size:12.5px}
+.tally{display:flex;gap:22px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line-soft);
+  border-radius:10px;padding:14px 18px;font-variant-numeric:tabular-nums}
+.tally .cell .l{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.tally .cell .v{font-family:var(--mono);font-size:16px;font-weight:700}
+.tally .ok{color:var(--pass)} .tally .bad{color:var(--crit)}
+details{background:var(--card);border:1px solid var(--line-soft);border-radius:10px;padding:10px 16px}
+summary{cursor:pointer;font-weight:650;font-size:13.5px;color:var(--ink-2)}
+details ul{margin:10px 0 4px;padding-left:20px;color:var(--ink-2);font-size:13px}
+details li{margin:3px 0}
+.actions{display:flex;gap:10px;margin-top:26px;flex-wrap:wrap}
+.meta{color:var(--ink-3);font-size:12px;margin-top:20px}
+.err{display:none;background:var(--crit-bg);color:var(--crit);border-radius:10px;
+  padding:12px 16px;margin-top:14px;font-size:13.5px}
+input[type=email],input[type=password]{background:var(--card);border:1px solid var(--line);color:var(--ink);
+  border-radius:8px;padding:8px 12px;font-size:14px;width:100%}
+input[type=email]:focus,input[type=password]:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+.samplelink{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent-ink);
+  border-radius:99px;padding:6px 14px;font-size:13px;font-weight:650;text-decoration:none;margin-left:auto;white-space:nowrap}
+.acctbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--card);
+  border:1px solid var(--line-soft);border-radius:10px;padding:10px 16px;margin-bottom:16px;font-size:13.5px}
+.acctbar .email{font-weight:680}
+.acctbar .runs{color:var(--ink-2)}
+.acctbar .runs b{color:var(--ink)}
+.acctbar .runs.zero b{color:var(--crit)}
+.authcard{background:var(--card);border:1px solid var(--line-soft);border-radius:12px;
+  padding:18px 20px;margin-bottom:18px;max-width:420px}
+.authcard h3{margin:0 0 4px;font-size:15px}
+.authcard .sub{margin:0 0 14px}
+.authcard form{display:flex;flex-direction:column;gap:10px}
+.authcard .switch{font-size:13px;color:var(--ink-2);margin-top:2px}
+.authcard .switch button{background:none;border:none;color:var(--accent-ink);text-decoration:underline;
+  cursor:pointer;font-size:13px;padding:0}
+.field-err{color:var(--crit);font-size:12.5px;min-height:14px}
+.hostpanel{background:var(--high-bg);border:1px solid var(--line-soft);border-radius:12px;
+  padding:16px 20px;margin:16px 0;max-width:560px}
+.hostpanel h3{margin:0 0 8px;color:var(--high);font-size:14.5px}
+.codebox{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 14px;
+  font:12.5px/1.5 var(--mono);color:var(--ink);overflow-x:auto;white-space:pre;margin-top:8px}
+.agentnote{color:var(--ink-3);font-size:12.5px;margin-top:8px}
+@media (prefers-reduced-motion: no-preference){
+  .finding{animation:up .25s ease both}
+  @keyframes up{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+}
+/* ---- product nav / hero / how-it's-built / deploy CTA ---- */
+.sitenav{position:sticky;top:0;z-index:50;background:var(--card);border-bottom:1px solid var(--line-soft)}
+.sitenav .inner{max-width:960px;margin:0 auto;padding:0 20px;display:flex;align-items:center;gap:18px;
+  height:54px;overflow-x:auto;scrollbar-width:none}
+.sitenav .inner::-webkit-scrollbar{display:none}
+.sitenav .brand{display:flex;align-items:center;gap:8px;font-weight:750;font-size:14.5px;color:var(--ink);
+  text-decoration:none;white-space:nowrap;flex:none}
+.sitenav .brand .mark{width:22px;height:22px;border-radius:6px;background:var(--accent);color:#fff;
+  display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex:none}
+.sitenav .links{display:flex;gap:2px;flex:none}
+.sitenav .links a{color:var(--ink-2);text-decoration:none;font-size:13.5px;font-weight:600;
+  padding:8px 10px;border-radius:7px;white-space:nowrap;transition:color .15s,background .15s}
+.sitenav .links a:hover{color:var(--ink);background:var(--line-soft)}
+.sitenav .links a.active{color:var(--accent-ink);background:var(--accent-soft)}
+.sitenav .links a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.hero{padding:34px 0 26px;border-bottom:1px solid var(--line-soft);margin-bottom:22px}
+.hero h1{font-size:30px;line-height:1.15;font-weight:750;letter-spacing:-.02em;margin:0 0 12px;max-width:640px}
+.hero h1 .k{color:var(--accent)}
+.hero p.lead{font-size:15.5px;line-height:1.6;color:var(--ink-2);max-width:640px;margin:0 0 10px}
+.hero p.who{font-size:13.5px;color:var(--ink-3);max-width:640px;margin:0 0 20px}
+.hero .actions{display:flex;gap:10px;flex-wrap:wrap}
+.hero .actions .btn,.hero .actions .btn.ghost{text-decoration:none;display:inline-flex;align-items:center}
+.diagramwrap{overflow:visible;background:#fff;border:1px solid var(--line-soft);border-radius:10px;
+  padding:16px}
+.diagramwrap a{display:block;width:100%;margin:0 auto}
+.diagramwrap img{display:block;width:100%;height:auto;max-width:100%;border-radius:4px;cursor:zoom-in}
+.diagramwrap a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.diagram-caption{color:var(--ink-3);font-size:12.5px;margin-top:8px;text-align:center}
+.svcgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.svcchip{background:var(--accent-soft);color:var(--accent-ink);border-radius:99px;padding:5px 13px;
+  font-size:12.5px;font-weight:650}
+.ctapanel{background:var(--accent-soft);border:1px solid var(--line);border-radius:12px;
+  padding:18px 20px;margin-top:26px}
+.ctapanel h2{border-bottom:none;color:var(--accent-ink);margin-bottom:6px}
+.totop{position:fixed;right:20px;bottom:20px;width:44px;height:44px;border-radius:50%;
+  background:var(--accent);color:#fff;border:none;font-size:18px;line-height:1;cursor:pointer;
+  box-shadow:0 4px 14px rgba(0,0,0,.22);opacity:0;pointer-events:none;
+  transform:translateY(8px);transition:opacity .2s,transform .2s;z-index:60}
+.totop.show{opacity:1;pointer-events:auto;transform:none}
+.totop:hover{filter:brightness(1.08)}
+.totop:focus-visible{outline:2px solid var(--accent-ink);outline-offset:3px}
+@media (prefers-reduced-motion: reduce){.totop{transition:none}.finding{animation:none}}
+@media (max-width:560px){.hero h1{font-size:25px}}
+
+/* --- auth control in the nav (top right) --- */
+.sitenav .inner{display:flex;align-items:center;gap:18px}
+.navauth{margin-left:auto;display:flex;align-items:center;gap:8px}
+.btn.sm{padding:6px 14px;font-size:12.5px;border-radius:8px}
+.navacct{display:flex;align-items:center;gap:10px}
+.navacct .email{font-size:12.5px;color:var(--ink-2);max-width:180px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.navacct .runs{font-size:12px;color:var(--ink-2);background:var(--accent-soft);
+  color:var(--accent-ink);padding:3px 9px;border-radius:999px;white-space:nowrap}
+.navacct .runs.zero{background:#FDECEC;color:#B42318}
+@media(max-width:820px){.navacct .email{display:none}}
+
+/* --- auth modal --- */
+.modal-backdrop{position:fixed;inset:0;background:rgba(12,10,18,.62);
+  backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;
+  padding:20px;z-index:120}
+.modal-backdrop[hidden]{display:none!important}
+.modal{background:var(--card);border:1px solid var(--line);border-radius:16px;
+  width:100%;max-width:430px;max-height:90vh;overflow:auto;
+  box-shadow:0 24px 70px rgba(0,0,0,.38);position:relative}
+.modal .modal-head{display:flex;align-items:flex-start;justify-content:space-between;
+  gap:12px;padding:20px 22px 0}
+.modal .modal-body{padding:4px 22px 22px}
+.modal h3{margin:0}
+.modal-x{background:none;border:0;font-size:22px;line-height:1;cursor:pointer;
+  color:var(--ink-3);padding:2px 6px;border-radius:8px}
+.modal-x:hover{background:var(--line-soft);color:var(--ink)}
+.modal-x:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media print{.modal-backdrop{display:none!important}}
+
+/* ---- marketing sections: problem / what-it-checks / how-it-works / sample / footer ---- */
+h3{font-size:12.5px;font-weight:750;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line-soft)}
+.problem-list{margin:14px 0 0;padding-left:20px;color:var(--ink-2);font-size:13.5px;line-height:1.6;max-width:680px}
+.problem-list li{margin:6px 0}
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:16px}
+.feature-card{background:var(--card);border:1px solid var(--line-soft);border-radius:12px;
+  padding:16px 18px;transition:border-color .15s,transform .15s,box-shadow .15s}
+.feature-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.06)}
+.feature-card h3{margin:0 0 6px;font-size:14.5px;font-weight:700;letter-spacing:normal;
+  text-transform:none;color:var(--ink);border-bottom:none;padding-bottom:0}
+.feature-card p{margin:0;color:var(--ink-2);font-size:13px;line-height:1.55}
+.steps{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:14px;max-width:680px}
+.steps li{display:flex;gap:14px;align-items:flex-start;background:var(--card);
+  border:1px solid var(--line-soft);border-radius:12px;padding:14px 18px}
+.steps .num{flex:none;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
+.steps .txt strong{display:block;font-size:14px;color:var(--ink);margin-bottom:2px}
+.steps .txt span{color:var(--ink-2);font-size:13px}
+.wa-excerpt{margin:10px 0 0;padding-left:20px;color:var(--ink-2);font-size:13px;line-height:1.6;max-width:680px}
+.wa-excerpt li{margin:4px 0}
+#deploy{margin-top:12px;border-top:2px solid var(--line);padding-top:30px}
+.sitefooter{border-top:1px solid var(--line-soft);margin-top:44px;padding:26px 20px 46px;
+  color:var(--ink-3);font-size:12.5px;text-align:center}
+.sitefooter a{color:var(--accent-ink)}
+.sitefooter p{margin:4px 0}
+
+/* --- nav overflow: links scroll, brand and auth stay pinned --- */
+.sitenav .inner{display:flex;align-items:center;gap:14px;flex-wrap:nowrap}
+.sitenav .brand{flex:0 0 auto}
+.sitenav .links{flex:1 1 auto;min-width:0;display:flex;gap:2px;
+  overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}
+.sitenav .links::-webkit-scrollbar{display:none}
+.sitenav .links a{white-space:nowrap;padding:7px 10px;font-size:13px}
+.navauth{flex:0 0 auto;margin-left:0}
+@media(max-width:900px){.sitenav .links a{padding:7px 8px;font-size:12.5px}}
+@media(max-width:640px){.sitenav .links{display:none}}
+
+/* `hidden` must beat any display rule — .navacct{display:flex} was overriding it,
+   leaving "Sign out" visible while signed out. */
+[hidden]{display:none!important}
+
+.sitefooter .legal{font-size:11px;line-height:1.6;color:var(--ink-3);max-width:none;
+  margin:10px 0 0;text-align:left;text-wrap:pretty}
+.sitefooter .legal a{color:var(--ink-2);text-decoration:underline}
+
+.navacct .hello{font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap;
+  max-width:170px;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:760px){.navacct .hello{max-width:90px}}
+
+.gatepanel{border:1px solid var(--line);border-radius:14px;padding:22px 24px;
+  background:var(--card);margin:18px 0}
+.gatepanel h3{margin:0 0 8px}
+.gatepanel p{margin:0 0 10px;color:var(--ink-2);font-size:14px;line-height:1.65}
+.gatepanel p.alt{color:var(--ink-3);font-size:13.5px}
+.gateactions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+</style>
+
+<nav class="sitenav" id="siteNav" aria-label="Section navigation">
+  <div class="inner">
+    <a class="brand" href="#hero"><span class="mark">SV</span>AWS SOW Validator</a>
+    <div class="links" id="navLinks">
+      <a href="#what-it-checks">What it does</a>
+      <a href="#built">How it works</a>
+      <a href="#sample">Sample report</a>
+      <a href="#validate">Validate a SOW</a>
+      <a href="#deploy">Deploy your own</a>
+    </div>
+    <div class="navauth" id="navAuth">
+      <button class="btn sm" id="navSignIn" type="button">Sign in</button>
+      <div class="navacct" id="navAcct" hidden>
+        <span class="hello" id="acctHello"></span>
+        <span class="runs" id="acctRuns2"></span>
+        <button class="btn ghost sm" id="signOutBtn2" type="button">Sign out</button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<main>
+<section id="hero" class="hero">
+  <h1><span class="k">AWS SOW</span> Validator</h1>
+  <p class="lead">Catch a broken Scope of Work before your customer does. AWS SOW Validator runs a
+    deterministic rule pack — cost-table arithmetic to the cent, brand contamination, deprecated
+    services, HIPAA and Well-Architected gaps — the moment you drop a document in, entirely in your
+    browser. Sign in for a deeper, agent-assisted pass on Amazon Bedrock that checks integration
+    wiring and scores the SOW against a delivery rubric.</p>
+  <p class="who">Built for AWS Partners and pre-sales teams validating a SOW before it goes out the
+    door. It's free to try, fully open source, and deploys into your own AWS account in one command.</p>
+  <div class="actions">
+    <a class="btn" href="#validate">Validate your SOW</a>
+    <a class="btn ghost" href="#sample">See a sample report</a>
+  </div>
+</section>
+
+<section id="problem">
+<h2>Problem</h2>
+<p class="lede">AWS Partners and pre-sales teams sign off Scopes of Work under deadline pressure,
+  usually without a second technical reviewer. That first pass only catches what a tired reader
+  remembers to check — not whether every row in the cost table actually sums to the stated total,
+  whether the architecture accidentally carries a client name from a different account, or whether a
+  service pairing has ever been validated against a known-good pattern. Once the SOW is approved,
+  there's rarely a reproducible record of why.</p>
+<ul class="problem-list">
+  <li>Cost tables are hand-totalled, and arithmetic mistakes travel straight into signed commercial
+    documents.</li>
+  <li>Architecture and service integrations are eyeballed, not checked against known-good and
+    known-bad wiring patterns.</li>
+  <li>There's no artifact recording what was reviewed and why it passed, so approvals aren't
+    reproducible or auditable.</li>
+</ul>
+</section>
+
+<section id="what-it-checks">
+<h2>Checks</h2>
+<div class="feature-grid">
+  <div class="feature-card"><h3>Segment &amp; industry rule packs</h3>
+    <p>Deterministic checks tuned by segment (Enterprise, SMB, Digital Native) and industry (FSI,
+    Retail, generic), so the bar is right for the deal in front of you.</p></div>
+  <div class="feature-card"><h3>Cost-table arithmetic</h3>
+    <p>Every row is re-summed and compared to the stated monthly and annual totals, to the cent —
+    no rounding, no benefit of the doubt.</p></div>
+  <div class="feature-card"><h3>Brand-contamination scan</h3>
+    <p>Catches another client's name left over in paragraphs, tables, headers, footers, or
+    captions from a copy-pasted template.</p></div>
+  <div class="feature-card"><h3>Deprecated-service detection</h3>
+    <p>Flags AWS services named in the SOW that are deprecated or on a retirement path, before a
+    customer signs up to build on them.</p></div>
+  <div class="feature-card"><h3>Well-Architected gap analysis</h3>
+    <p>Checks the design against all six Well-Architected pillars — Operational Excellence,
+    Security, Reliability, Performance Efficiency, Cost Optimization, and Sustainability.</p></div>
+  <div class="feature-card"><h3>Integration chaining</h3>
+    <p>Classifies every service-to-service pairing as native, glue-required, anti-pattern, or
+    unverified, against a fixed service graph.</p></div>
+  <div class="feature-card"><h3>SOW scoring rubric</h3>
+    <p>Scores objectives, scope, acceptance criteria, assumptions, timeline, commercials, roles,
+    and architecture alignment against a weighted rubric.</p></div>
+</div>
+</section>
+
+<section id="how-it-works">
+<h2>How it works</h2>
+<ol class="steps">
+  <li><span class="num">1</span><span class="txt"><strong>Upload a .docx</strong>
+    <span>Drag your SOW into the page, or choose a file — nothing leaves your browser yet.</span></span></li>
+  <li><span class="num">2</span><span class="txt"><strong>Deterministic checks run instantly</strong>
+    <span>Cost tally, brand scan, deprecated-service check, and Well-Architected gaps — no account,
+    no server round trip, no cost.</span></span></li>
+  <li><span class="num">3</span><span class="txt"><strong>Optional: agent-assisted review</strong>
+    <span>Sign in for a deeper pass on Amazon Bedrock AgentCore Runtime — integration verdicts,
+    a priced cost estimate, and a scored SOW rubric.</span></span></li>
+</ol>
+</section>
+
+<section id="sample">
+<h2>See a sample report</h2>
+<p class="sub">A real full-agent report against an illustrative serverless order-tracking SOW, so you
+  can see the depth of a review before you upload your own.</p>
+<div class="verdict v-fix"><span class="word">⚠️ FIX REQUIRED</span>
+  <span class="why">2 high-severity findings to resolve before delivery. 4 medium and 2 low findings
+  remain for the next editing pass.</span></div>
+<div class="chips" style="margin-bottom:6px">
+  <span class="chip c-crit">Critical 0</span><span class="chip c-high">High 2</span>
+  <span class="chip c-med">Medium 4</span><span class="chip c-low">Low 2</span>
+  <span class="chip c-pass">Passed 15</span><span class="chip c-score">SOW score 71.5 — Acceptable</span>
+</div>
+<div class="finding f-high"><div class="stripe"></div><div class="body">
+  <div class="head"><span class="sev s-high">HIGH</span>
+    <span class="title">Lambda functions share one broad execution role</span>
+    <span class="cat">IAM</span></div>
+  <div class="detail">14 functions are attached to one <code>OrderProcessingRole</code> with
+    <code>AmazonDynamoDBFullAccess</code>.</div>
+  <div class="impact">Fix: <b>Split into per-function least-privilege roles scoped to specific table
+    ARNs and actions.</b></div></div></div>
+<div class="finding f-high"><div class="stripe"></div><div class="body">
+  <div class="head"><span class="sev s-high">HIGH</span>
+    <span class="title">No dead-letter queue on the order-status EventBridge rule</span>
+    <span class="cat">Reliability</span></div>
+  <div class="detail">The rule targets Lambda directly with no DLQ or retry policy documented.</div>
+  <div class="impact">Fix: <b>Attach an SQS DLQ and a retry policy to the rule target.</b></div>
+  </div></div>
+<h3>Well-Architected excerpt — Security pillar</h3>
+<ul class="wa-excerpt">
+  <li>A single broad IAM role is reused across 14 Lambda functions instead of least-privilege,
+    per-function roles.</li>
+  <li>No AWS WAF sits in front of the public REST API or the CloudFront distribution.</li>
+  <li>Customer-managed KMS keys aren't specified — S3 and DynamoDB appear to rely on default
+    AWS-managed keys.</li>
+</ul>
+<p class="sub"><a href="sample.html">See the full sample report →</a> — all 8 findings, all six
+  Well-Architected pillars, the complete cost table, and every integration-chaining verdict.</p>
+</section>
+
+<div class="acctbar" id="acctBar" style="display:none">
+  <span class="email" id="acctEmail"></span>
+  <span class="runs" id="acctRuns"></span>
+  <button class="btn ghost" id="signOutBtn" style="padding:5px 14px;font-size:12.5px">Sign out</button>
+</div>
+
+<section id="built">
+<h2>How this is built</h2>
+<p class="sub">AWS SOW Validator runs a two-tier review. Tier 1 is fully deterministic — it runs the
+  moment a document is dropped, with no model call, no network round trip beyond loading this page,
+  and no cost. Tier 2 adds an agent-assisted review, powered by Amazon Nova on Amazon Bedrock
+  AgentCore Runtime, for teams that want a deeper, model-informed pass.</p>
+<p class="sub">In Tier 2 the model's job is narrow by design: it reads the SOW and proposes what it
+  sees. Every number in the report — cost lines, arithmetic deltas, severity counts — is computed by
+  Python, not the model. Every integration verdict (native, glue-required, anti-pattern, unverified)
+  is decided by a rule pack against a fixed service graph. Every citation is a real AWS documentation
+  URL resolved by code, never invented text. The model proposes; the pipeline decides.</p>
+<div class="diagramwrap">
+  <a href="architecture.svg" target="_blank" rel="noopener" aria-label="Open the architecture diagram at full size in a new tab">
+    <img src="architecture.svg" loading="lazy" alt="Architecture diagram of AWS SOW Validator: Amazon
+      CloudFront and AWS WAF in front of an Amazon S3-hosted static site; Amazon Cognito for
+      authentication; signed API requests routed through AWS Lambda; Lambda invoking Amazon Bedrock
+      AgentCore Runtime, which uses AgentCore Memory, Gateway, Identity, Policy Engine and Code
+      Interpreter alongside Amazon Nova on Bedrock and Bedrock Knowledge Bases; results and run counters
+      stored in Amazon DynamoDB.">
+  </a>
+</div>
+<p class="diagram-caption">Figure: AWS SOW Validator request and review path. Scroll to see the full
+  diagram, or click it to open the full-size image in a new tab.</p>
+<p class="meta" style="margin-top:8px">Request path: CloudFront + WAF + S3 (static site) → Cognito
+  (authentication) → Lambda (API + rule packs) → Bedrock AgentCore Runtime (Memory, Gateway, Identity,
+  Policy Engine, Code Interpreter) → Amazon Nova on Bedrock + Bedrock Knowledge Bases → DynamoDB
+  (results, quotas).</p>
+<div class="svcgrid">
+  <span class="svcchip">Amazon Bedrock</span>
+  <span class="svcchip">Bedrock AgentCore Runtime</span>
+  <span class="svcchip">AgentCore Memory</span>
+  <span class="svcchip">AgentCore Gateway</span>
+  <span class="svcchip">AgentCore Identity</span>
+  <span class="svcchip">AgentCore Policy Engine</span>
+  <span class="svcchip">AgentCore Code Interpreter</span>
+  <span class="svcchip">Bedrock Knowledge Bases</span>
+  <span class="svcchip">Amazon CloudFront</span>
+  <span class="svcchip">Amazon S3</span>
+  <span class="svcchip">AWS Lambda</span>
+  <span class="svcchip">Amazon DynamoDB</span>
+  <span class="svcchip">Amazon Cognito</span>
+  <span class="svcchip">AWS WAF</span>
+</div>
+</section>
+
+<section id="validate">
+<h2>Validate your SOW</h2>
+<p class="sub">Drop a partner SOW to run the full deterministic gate: the gap-check
+evaluator, the AWS SOW Validator scoring rubric (SOW-01…09), brand-contamination scan, and a
+to-the-cent cost-table tally. Deterministic checks run entirely in this page — your document is
+parsed in the browser and is never uploaded for them. Sign in to use the validator; hosted sign-up
+is limited to <code>@amazon.com</code> addresses and
+<code>schinchli@gmail.com</code>, and each verified account gets one free review — everyone else,
+deploy your own copy below, no waitlist, no quota.</p>
+
+<div class="modal-backdrop" id="authModal" hidden role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+<div class="modal">
+  <div class="modal-head">
+    <h3 id="authModalTitle" class="sr-title">Account</h3>
+    <button class="modal-x" id="authClose" type="button" aria-label="Close">&times;</button>
+  </div>
+  <div class="modal-body">
+<section id="authSec" class="authcard">
+  <div id="authSignIn">
+    <h3>Sign in</h3>
+    <p class="sub">Needed only for "Run full agent review" — deterministic checks below never require an account.</p>
+    <form id="signInForm" autocomplete="on">
+      <input type="email" id="siEmail" placeholder="Email" autocomplete="username" required>
+      <input type="password" id="siPassword" placeholder="Password" autocomplete="current-password" required>
+      <div class="field-err" id="siErr"></div>
+      <button class="btn" type="submit">Sign in</button>
+    </form>
+    <div class="switch">No account? <button type="button" id="toSignUp">Create one — free</button></div>
+  </div>
+  <div id="authSignUp" style="display:none">
+    <h3>Create an account</h3>
+    <p class="sub">Sign-up on this hosted instance is restricted — see the note above. Any other
+      address? Skip to <a href="#deploy">deploying your own copy</a> instead.</p>
+    <form id="signUpForm" autocomplete="on">
+      <input type="text" id="suName" placeholder="Your name" autocomplete="name" required maxlength="60">
+      <input type="email" id="suEmail" placeholder="Email" autocomplete="username" required>
+      <input type="password" id="suPassword" placeholder="Password (min 8 characters)" autocomplete="new-password" required minlength="8">
+      <div class="field-err" id="suErr"></div>
+      <button class="btn" type="submit">Sign up</button>
+    </form>
+    <div class="switch">Already have an account? <button type="button" id="toSignIn">Sign in</button></div>
+  </div>
+  <div id="authVerify" style="display:none">
+    <h3>Verify your email</h3>
+    <p class="sub">Enter the 6-digit code we emailed to <b id="verifyEmailLabel"></b>.</p>
+    <form id="verifyForm">
+      <input type="text" id="vCode" placeholder="Verification code" inputmode="numeric" autocomplete="one-time-code" required>
+      <div class="field-err" id="vErr"></div>
+      <button class="btn" type="submit">Verify &amp; sign in</button>
+    </form>
+    <div class="switch">Didn't get it? <button type="button" id="resendCode">Resend code</button></div>
+  </div>
+</section>
+  </div>
+</div>
+</div>
+
+<section id="hostSec" class="hostpanel" style="display:none">
+  <h3>⚠️ Free hosted review used up</h3>
+  <p class="sub" id="hostMsg" style="margin:0">The hosted demo gives every verified account one free full
+    agent review. This tool is open source and deploys into your own AWS account in one command — no quota there.</p>
+  <div class="actions" style="margin-top:10px">
+    <a class="btn" id="hostLink" href="https://github.com/schinchli/aws-sow-validator" target="_blank" rel="noopener">View the repository →</a>
+  </div>
+  <div style="margin-top:14px">
+    <div class="sub" style="margin:0 0 4px">Self-host in one command:</div>
+    <div class="codebox" id="hostSnippet"></div>
+    <button class="btn ghost" id="hostCopy" style="margin-top:8px;padding:6px 14px;font-size:12.5px">Copy command</button>
+  </div>
+</section>
+
+<div class="controls">
+  <label for="client">Client</label>
+  <input type="text" id="client" placeholder="client name(s), comma-separated" autocomplete="off">
+  <span class="chip c-low" id="bannedBadge">brand list: fallback only</span>
+  <label for="segment">Segment</label>
+  <select id="segment">
+    <option value="enterprise" selected>Enterprise</option>
+    <option value="smb">SMB</option>
+    <option value="digital_native">Digital Native</option>
+  </select>
+  <label for="industry">Industry</label>
+  <select id="industry">
+    <option value="generic" selected>Generic</option>
+    <option value="fsi">FSI</option>
+    <option value="retail">Retail</option>
+  </select>
+</div>
+
+
+<div id="validateGate" class="gatepanel">
+  <h3>Sign in to validate a SOW</h3>
+  <p>Uploading a Scope of Work requires a verified account. Sign-in on this hosted
+     instance is limited to <strong><code>@amazon.com</code></strong> addresses and
+     <strong><code>schinchli@gmail.com</code></strong>. Each verified account gets one
+     free agent-assisted review.</p>
+  <p class="alt">Using any other email address? You are not locked out — the whole project
+     is open source. Deploy your own copy into your own AWS account in one command, with no
+     allowlist and no quota.</p>
+  <div class="gateactions">
+    <button class="btn" id="gateSignIn" type="button">Sign in</button>
+    <a class="btn ghost" href="#deploy">Deploy your own &rarr;</a>
+    <a class="btn ghost" href="https://github.com/schinchli/aws-sow-validator" target="_blank" rel="noopener">View on GitHub</a>
+  </div>
+</div>
+<div id="validateTool" hidden>
+<div id="drop" tabindex="0" role="button" aria-label="Drop a SOW file or click to choose">
+  <div class="big">Drop the SOW here — .docx</div>
+  <div class="hint">or click to choose a file. Word <code>.docx</code> only, up to <span id="maxMb">5</span> MB. For a PDF, copy the text and use paste instead.</div>
+  <input type="file" id="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+</div>
+<button class="paste-toggle" id="pasteToggle">…or paste the SOW text</button>
+<span style="margin:0 6px;color:var(--ink-3)">·</span>
+<button class="paste-toggle" id="driveBtn">…or browse the Google Drive folder</button>
+<section id="driveSec" style="display:none;margin-top:14px"><h3>Google Drive — SOW folder</h3>
+  <p class="sub" id="driveStatus" style="margin:0 0 10px"></p>
+  <div class="tblwrap"><table id="driveTable" style="display:none"></table></div>
+  <div class="actions" id="driveBatchRow" style="display:none">
+    <button class="btn ghost" id="driveAllBtn">Validate all</button>
+  </div>
+  <div class="tblwrap" style="margin-top:10px"><table id="driveSummary" style="display:none"></table></div>
+</section>
+<textarea id="pasteBox" placeholder="Paste the full SOW text here (including cost table rows), then press Validate."></textarea>
+<div style="margin-top:10px"><button class="btn" id="runPaste" style="display:none">Validate pasted text</button></div>
+<div class="err" id="err"></div>
+</section>
+
+<div id="report">
+  <div class="verdict" id="verdict"><span class="word" id="vword"></span><span class="why" id="vwhy"></span></div>
+  <div class="chips" id="chips"></div>
+
+  <section id="secFind"><h3>Findings</h3><div id="findings"></div></section>
+
+  <section id="secTally"><h3>Cost table tally</h3>
+    <div class="tally" id="tally"></div>
+    <div style="margin-top:10px"><details><summary id="rowsSummary">Parsed cost rows</summary>
+      <div class="tblwrap" style="margin-top:8px"><table id="rowsTable"></table></div></details></div>
+  </section>
+
+  <section id="secScore"><h3>SOW quality score — AWS SOW Validator rubric</h3>
+    <div class="chips" style="margin:0 0 10px"><span class="chip c-score" id="scoreChip"></span></div>
+    <p class="sub" id="scoreSummary" style="margin:0 0 10px"></p>
+    <div class="tblwrap"><table id="criteriaTable">
+      <tr><th>Criterion</th><th>Weight</th><th>Band</th><th>Fix (if gap)</th></tr>
+    </table></div>
+  </section>
+
+  <section id="secPassed"><h3>Passed checks</h3>
+    <details><summary id="passSummary"></summary><ul id="passList"></ul></details>
+  </section>
+
+  <div class="actions">
+    <label class="sub" style="display:inline-flex;align-items:center;gap:6px;margin-right:8px">
+      <input type="checkbox" id="detOnly"> ⚡ Deterministic (instant, no model)</label>
+    <button class="btn" id="agentBtn">Run full agent review</button>
+    <button class="btn ghost" id="dl" style="display:none">Download report (.md)</button>
+    <button class="btn ghost" id="reset">Validate another SOW</button>
+  </div>
+  <p class="agentnote" id="agentDisabledNote" style="display:none">This install runs deterministic checks
+    only — no AgentCore/Nova runtime is configured. See the repository README to enable the full agent
+    review path.</p>
+
+  </div>
+<section id="confirmSec" style="display:none"><h3>Confirm extracted services</h3>
+    <p class="sub" style="margin:0 0 10px">The agent read the SOW and extracted these services.
+    Untick anything wrong, then confirm — the review runs only on what you approve.</p>
+    <div id="svcList" class="tally" style="display:block"></div>
+    <div id="svcNotes" class="sub" style="margin-top:8px"></div>
+    <div class="actions" style="margin-top:12px">
+      <button class="btn" id="confirmBtn">Confirm &amp; run review</button>
+      <button class="btn ghost" id="cancelConfirm">Cancel</button>
+    </div>
+  </section>
+
+  <section id="agentSec" style="display:none"><h3>Agent review — deployed rule packs + pricing</h3>
+    <div class="verdict" id="aVerdict"><span class="word" id="aVword"></span><span class="why" id="aVwhy"></span></div>
+    <div class="sub" id="aMeta" style="margin-top:6px"></div>
+    <div id="aLenses" style="margin-top:10px"></div>
+    <div class="chips" id="aChips"></div>
+    <div id="aFindings" style="margin-top:12px"></div>
+    <h3 style="margin-top:20px">Deterministic cost estimate</h3>
+    <div class="tally" id="aCostSummary"></div>
+    <div style="margin-top:10px"><details><summary id="aCostRowsSummary">Cost lines</summary>
+      <div class="tblwrap" style="margin-top:8px"><table id="aCostTable"></table></div></details></div>
+    <h3 style="margin-top:20px">SOW score (agent)</h3>
+    <div class="chips" style="margin:0 0 10px"><span class="chip c-score" id="aScoreChip"></span></div>
+    <p class="sub" id="aScoreSummary" style="margin:0 0 10px"></p>
+    <div class="tblwrap"><table id="aCriteria"></table></div>
+    <h3 style="margin-top:20px">Recommended reading</h3>
+    <div id="aRecs"></div>
+    <div class="actions" id="aShareRow" style="display:none">
+      <button class="btn ghost" id="copyShare">Copy share link</button>
+      <span class="sub" id="shareNote" style="align-self:center"></span>
+    </div>
+  </section>
+
+  <div class="meta" id="meta"></div>
+</div>
+
+<section id="deploy" class="ctapanel">
+<h2>Deploy in your AWS account</h2>
+<p class="sub" style="margin:0">Access to this hosted instance is limited — sign-up is restricted and
+  the free tier caps out at one full agent review per account. AWS SOW Validator is open source:
+  clone the repository and deploy your own copy into your own AWS account, with no sign-up
+  restriction and no quota.</p>
+<div class="codebox" id="deploySnippet">git clone https://github.com/schinchli/aws-sow-validator
+cd aws-sow-validator/infrastructure/cdk
+npm ci
+npx cdk deploy PocValidatorWebStack</div>
+<div class="actions" style="margin-top:12px">
+  <a class="btn" id="deployRepoLink" href="https://github.com/schinchli/aws-sow-validator" target="_blank" rel="noopener">View the repository →</a>
+  <button class="btn ghost" id="deployCopy">Copy command</button>
+</div>
+</section>
+</main>
+<footer class="sitefooter" id="footer">
+  <p><a href="https://github.com/schinchli/aws-sow-validator" target="_blank" rel="noopener">github.com/schinchli/aws-sow-validator</a>
+    &middot; Apache License 2.0</p>
+    <p class="legal">Independent open-source project, not affiliated with or endorsed by Amazon Web Services, Inc.; AWS marks belong to Amazon.com, Inc. Results are automated, non-binding guidance &mdash; not professional, legal, financial, or architectural advice, nor a compliance certification; costs are estimates. Provided &ldquo;as is&rdquo; without warranty, under <a href="https://github.com/schinchli/aws-sow-validator/blob/main/LICENSE" target="_blank" rel="noopener">Apache&nbsp;2.0</a>.</p>
+</footer>
+<button id="toTop" class="totop" aria-label="Scroll to top" title="Back to top">↑</button>
+
+<script>
+/* ========== DOCX extraction (client-side zip + deflate) ========== */
+async function docxToText(buf){
+  const dv=new DataView(buf), u8=new Uint8Array(buf);
+  // find End Of Central Directory (PK\x05\x06) scanning back from EOF
+  let eocd=-1;
+  for(let i=buf.byteLength-22;i>=Math.max(0,buf.byteLength-70000);i--){
+    if(dv.getUint32(i,true)===0x06054b50){eocd=i;break}}
+  if(eocd<0) throw new Error("Not a valid .docx (zip directory not found).");
+  const count=dv.getUint16(eocd+10,true), cdOff=dv.getUint32(eocd+16,true);
+  const entries={}; let p=cdOff;
+  for(let n=0;n<count;n++){
+    if(dv.getUint32(p,true)!==0x02014b50) break;
+    const method=dv.getUint16(p+10,true), csize=dv.getUint32(p+20,true),
+      nameLen=dv.getUint16(p+28,true), extraLen=dv.getUint16(p+30,true),
+      cmtLen=dv.getUint16(p+32,true), lho=dv.getUint32(p+42,true),
+      name=new TextDecoder().decode(u8.subarray(p+46,p+46+nameLen));
+    entries[name]={method,csize,lho}; p+=46+nameLen+extraLen+cmtLen;
+  }
+  async function extract(name){
+    const e=entries[name]; if(!e) return null;
+    const nl=dv.getUint16(e.lho+26,true), el=dv.getUint16(e.lho+28,true);
+    const data=u8.subarray(e.lho+30+nl+el, e.lho+30+nl+el+e.csize);
+    if(e.method===0) return new TextDecoder().decode(data);
+    const ds=new DecompressionStream("deflate-raw");
+    const out=await new Response(new Blob([data]).stream().pipeThrough(ds)).arrayBuffer();
+    return new TextDecoder().decode(out);
+  }
+  // main body + all headers/footers (contamination hides there)
+  const parts=["word/document.xml"];
+  for(const n of Object.keys(entries))
+    if(/^word\/(header|footer)\d*\.xml$/.test(n)) parts.push(n);
+  let text="";
+  for(const n of parts){
+    const xml=await extract(n); if(!xml) continue;
+    text+=xmlToText(xml)+"\n";
+  }
+  return text;
+}
+function xmlToText(xml){
+  // inside table cells a paragraph end is a soft join, not a line break —
+  // convert <w:tbl> blocks with pSep=" " so each row becomes "a | b | c"
+  const conv=(s,pSep)=>s
+    .replace(/<w:tab[^>]*\/>/g,"\t")
+    .replace(/<\/w:p>/g,pSep)
+    .replace(/<\/w:tc>/g," | ")
+    .replace(/<\/w:tr>/g,"\n");
+  return xml
+    .replace(/<w:tbl\b[\s\S]*?<\/w:tbl>/g,tbl=>conv(tbl," "))
+    .replace(/<w:tab[^>]*\/>/g,"\t")
+    .replace(/<\/w:p>/g,"\n")
+    .replace(/<[^>]+>/g,"")
+    .replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">")
+    .replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&#(\d+);/g,(m,d)=>String.fromCharCode(+d))
+    .split("\n").map(l=>l.replace(/\s*\|\s*$/,"").trim()).filter(l=>l).join("\n");
+}
+
+/* ========== Check engine — deterministic gap checks ========== */
+// The confidential brand/contamination list is NEVER shipped in this file.
+// It is fetched at runtime from same-origin /config/banned-clients.json
+// (uploaded out-of-band, behind the site's auth). Fallback is a placeholder.
+let BANNED=["example-contaminant"];
+let TECH_EXCL={};
+let bannedLoaded=false;
+let CFG_DEMO_KEY="";
+fetch("/config/banned-clients.json",{cache:"no-store"})
+  .then(r=>r.ok?r.json():null)
+  .then(cfg=>{
+    if(!cfg) return;
+    if(Array.isArray(cfg.banned)&&cfg.banned.length) BANNED=cfg.banned.map(s=>String(s).toLowerCase());
+    if(cfg.tech_exclusions) TECH_EXCL=Object.fromEntries(
+      Object.entries(cfg.tech_exclusions).map(([k,src])=>[k,new RegExp(src,"gi")]));
+    if(typeof cfg.demo_key==="string") CFG_DEMO_KEY=cfg.demo_key;
+    bannedLoaded=true;
+    const b=document.getElementById("bannedBadge");
+    if(b){b.textContent=`brand list: loaded (${BANNED.length})`;b.classList.add("ok");}
+  }).catch(()=>{});
+const VECTOR_KW=["opensearch serverless","opensearch","pgvector","neptune analytics",
+ "documentdb vector","memorydb vector","vector store","vector database",
+ "bedrock knowledge base","faiss","chroma","weaviate","qdrant","milvus"];
+const EMB_KW=["embedding","titan embed","bedrock knowledge","retrieval augmented"];
+const RAG_RE=/\brag\b|\bretrieval[\s-]augmented/i;
+const DEPRECATED={codecommit:"Deprecated July 2024 — use CodeCatalyst, GitHub, or GitLab.",
+ "sagemaker studio lab":"Deprecated — use SageMaker Studio or Bedrock.",
+ "kendra classic":"Deprecated — use Bedrock Knowledge Bases.",
+ "aws codepipeline v1":"V1 pipelines deprecated — use V2."};
+
+function runChecks(text, clientName){
+  const t=text.toLowerCase(), findings=[], passed=[];
+  const F=(sev,cat,issue,impact,detail)=>findings.push({sev,cat,issue,impact,detail});
+  const P=(x)=>passed.push(x);
+  const clients=(clientName||"").toLowerCase().split(",").map(s=>s.trim()).filter(Boolean);
+
+  // 0 — brand contamination
+  {const hits=[];
+   for(const b of BANNED){
+     if(clients.some(c=>b.includes(c)||c.includes(b))) continue;
+     let scan=t; const ex=TECH_EXCL[b]; if(ex) scan=scan.replace(ex,"");
+     const re=new RegExp("\\b"+b.replace(/[-\/\\^$*+?.()|[\]{}]/g,"\\$&")+"\\b");
+     if(re.test(scan)) hits.push(b);}
+   // collapse subsets ("acme corp" implies "acme")
+   const uniq=hits.filter(h=>!hits.some(o=>o!==h&&o.includes(h)));
+   if(uniq.length) F("CRITICAL","Brand Contamination",
+     "Other client name(s) found in SOW: "+uniq.join(", "),
+     "Delivery blocker — cross-client contamination",
+     "Only the current client name may appear. Search paragraphs, tables, headers, footers, and captions; replace every occurrence.");
+   else P("No brand contamination");}
+
+  // cost table extraction + tally
+  const rows=[]; let statedMonthly=null, statedAnnual=null, totalRow=null;
+  for(const line of text.split("\n")){
+    const m=line.match(/\$\s*([\d,]+(?:\.\d{1,2})?)\s*$/); if(!m) continue;
+    const val=parseFloat(m[1].replace(/,/g,""));
+    const name=line.split("|")[0].trim();
+    if(/^total monthly cost/i.test(name)) statedMonthly=val;
+    else if(/^total annual cost/i.test(name)) statedAnnual=val;
+    else if(/^upfront/i.test(name)) ;
+    else if(/^total\b/i.test(name)) totalRow=val;
+    else if(line.includes("|")) rows.push({name,val});
+  }
+  const sum=rows.reduce((a,r)=>a+r.val,0);
+  const stated=totalRow??statedMonthly;
+  let tallyInfo=null;
+  if(rows.length>=3 && stated!=null){
+    P("Cost table present in SOW");
+    const delta=+(sum-stated).toFixed(2);
+    tallyInfo={rows,sum:+sum.toFixed(2),stated,delta,statedMonthly,statedAnnual};
+    if(Math.abs(delta)>0.011)
+      F("CRITICAL","Pricing Integrity",
+        `Cost rows sum to $${sum.toFixed(2)} but stated total is $${stated.toFixed(2)} (delta ${delta>0?"+":""}${delta.toFixed(2)})`,
+        "Anti-fabrication rule: delta must be $0.00",
+        "Re-total the table from its rows, then recompute the annual figure. Never adjust a row to force a total.");
+    else P("Cost rows sum equals stated total ($0.00 delta)");
+    if(statedMonthly!=null&&statedAnnual!=null){
+      if(Math.abs(statedAnnual-statedMonthly*12)>0.02)
+        F("HIGH","Pricing Integrity",
+          `Annual ($${statedAnnual.toFixed(2)}) ≠ 12 × monthly ($${(statedMonthly*12).toFixed(2)})`,
+          "Arithmetic must reconcile","Recompute annual as exactly 12 × the corrected monthly total.");
+      else P("Annual = 12 × monthly");}
+    if(stated<2000)
+      F("HIGH","Engagement Viability",
+        `Monthly total $${stated.toFixed(2)} is below the $2,000 engagement minimum`,
+        "Below commercial floor","Add legitimate scope (managed rules, backup, monitoring depth) or obtain an explicit exception.");
+    else P("Engagement ≥ $2,000/month");
+  } else {
+    F("HIGH","Document Completeness","Cost table not found or unparsable",
+      "Cannot verify pricing integrity",
+      "The validator looks for table rows shaped 'Service | Config | $N.NN'. If the SOW has a cost table, paste the text instead.");
+  }
+
+  // timeline — max "Week N" and "N weeks"
+  {let maxW=0;
+   for(const m of t.matchAll(/\bweek\s+(\d{1,2})\b/g)) maxW=Math.max(maxW,+m[1]);
+   for(const m of t.matchAll(/\b(\d{1,2})[\s-]*weeks?\b/g)) maxW=Math.max(maxW,+m[1]);
+   if(maxW>0&&maxW<6) F("MEDIUM","Scope / Timeline",
+     `Timeline is ${maxW} weeks — engagement minimum is 6`,
+     "Below internal minimum","Extend to ≥ 6 weeks with phase-mapped deliverables.");
+   else if(maxW>=6) P("Timeline ≥ 6 weeks");
+   else F("MEDIUM","Scope / Timeline","No weekly timeline detected","Schedule unverifiable",
+     "Add a Week-by-week phase table (≥ 6 weeks).");}
+
+  // signatures & diagram
+  if(/signature|signatories|sign-off|authorized representative/.test(t)) P("Signature blocks present");
+  else F("HIGH","Document Completeness","No signature block found","Not executable as a contract","Add client + partner signature blocks.");
+  if(/architecture diagram|architecture overview/.test(t)) P("Architecture diagram referenced");
+  else F("MEDIUM","Document Completeness","Architecture diagram not referenced","Diagram = source of truth","Embed the diagram and reference it in the architecture section.");
+
+  // deprecated services
+  {let hit=false;
+   for(const [svc,note] of Object.entries(DEPRECATED))
+     if(t.includes(svc)){hit=true;F("HIGH","Deprecated AWS Service",`'${svc}' found`,"Migration cost unplanned",note);}
+   if(!hit) P("No deprecated AWS services");}
+
+  // vector store when RAG intent
+  {const hasEmb=EMB_KW.some(k=>t.includes(k))||RAG_RE.test(t);
+   const hasVec=VECTOR_KW.some(k=>t.includes(k));
+   const hasBedrock=t.includes("bedrock");
+   if(hasEmb&&!hasVec)
+     F("CRITICAL","Architecture — Vector Store",
+       "RAG/embeddings intent detected but no vector store in SOW",
+       "≈ $350.40/env/mo missing (2 OCUs OpenSearch Serverless)",
+       "Bedrock KB requires OpenSearch Serverless, Aurora pgvector, Neptune Analytics, Pinecone, Redis Enterprise, or MongoDB Atlas. Name it in scope AND price it.");
+   else if(hasEmb&&hasVec){
+     if(t.includes("opensearch")&&!/\bocu s?\b|\bocus?\b|ocu/.test(t))
+       F("MEDIUM","Architecture — Vector Store",
+         "OpenSearch referenced — verify OCU sizing and pricing ≥ $350.40/env/mo",
+         "Serverless minimum 2 OCUs; production needs redundancy (4)",
+         "State OCU count and whether redundancy is disabled (POC) or enabled (production).");
+     else P("Vector store present for RAG workload");}
+   else if(hasBedrock) P("Bedrock without RAG intent — vector store not required");
+   else P("No AI/RAG workload — vector store N/A");
+   // EFS as vector store
+   if(hasEmb&&t.includes("efs")&&/efs[^.\n]{0,60}(vector|embedding|index)/.test(t))
+     F("CRITICAL","Architecture — Vector Store","EFS appears to be used as a vector store",
+       "EFS is a file system, not a vector database","Replace with OpenSearch Serverless or pgvector.");
+   // Bedrock model pinned
+   if(hasBedrock){
+     const pinned=["anthropic.claude","amazon.nova","claude sonnet","claude opus","claude haiku",
+       "nova pro","nova lite","nova micro","claude-sonnet","claude-haiku","claude-opus"].some(k=>t.includes(k));
+     const tbd=/model[^.\n]{0,30}(tbd|latest)/.test(t);
+     if(tbd&&!pinned) F("HIGH","Bedrock / AI","Bedrock model is 'TBD' or 'latest' — must be pinned",
+       "Silent model swaps can break prompts and double costs","Pin an explicit model (may be labelled indicative, subject to POC).");
+     else if(pinned) P("Bedrock model identified");
+     else F("MEDIUM","Bedrock / AI","Bedrock in scope but no model named",
+       "Estimate is unpriceable without a model","Name an indicative model in the cost row and assumptions.");
+     if((hasEmb||RAG_RE.test(t))&&!/prompt cach/.test(t))
+       F("LOW","Cost Optimisation","Bedrock + RAG detected — Prompt Caching not mentioned",
+         "Up to 90% off repeated static prompts ≥ 1,024 tokens",
+         "Add prompt caching to the cost-optimisation notes and pricing assumptions.");
+     else if(/prompt cach/.test(t)) P("Prompt Caching noted");
+     if(/preview/.test(t)&&/production/.test(t)&&/(limited preview|preview model)/.test(t))
+       F("HIGH","Bedrock / AI","Preview model referenced for production scope",
+         "Preview models have no SLA","Use only GA models for production commitments.");}
+   else P("Bedrock checks — not in scope");}
+
+  // security & best-practice set
+  const hipaa=/hipaa|\bphi\b|healthcare|patient/.test(t);
+  if(/\bec2\b|ec2 instance|g\d\w*\.\d*x?large|m\d\w*\.\d*x?large/.test(t)){
+    if(/imdsv2|httptokens/.test(t)) P("IMDSv2 enforcement stated");
+    else F("MEDIUM","Security","EC2 present but IMDSv2 enforcement not mentioned",
+      "SSRF → stolen IAM credentials via instance metadata",
+      "Add to EC2 scope: HttpTokens=required, hop limit 1.");}
+  if(t.includes("cloudtrail")){
+    if(/multi-?\s?region/.test(t)) P("CloudTrail multi-region confirmed");
+    else F("HIGH","Compliance","CloudTrail configured but multi-region trail not confirmed",
+      "Single-region trails miss global IAM/STS/CloudFront events",
+      "State: multi-region trail + global service events + log file validation.");}
+  else F("MEDIUM","Compliance","CloudTrail absent from SOW","No audit trail for the AWS account",
+    "Add a multi-region CloudTrail line to scope and pricing (~$1/mo).");
+  if(t.includes("waf")){
+    if(/managed rule|commonruleset|known bad inputs/.test(t)) P("WAF managed rules referenced");
+    else F("MEDIUM","Security","WAF present but no AWS Managed Rule Groups",
+      "~$1/mo per group — OWASP Top 10 coverage",
+      "Add AWSManagedRulesCommonRuleSet + KnownBadInputsRuleSet at minimum.");}
+  if(/secrets manager/.test(t)){
+    if(/rotat/.test(t)) P("Secrets rotation mentioned");
+    else F("MEDIUM","Security","Secrets Manager present but rotation not mentioned",
+      "Static credentials age indefinitely","Enable automated rotation for supported credential types.");}
+  if(/\brds\b|postgresql|mysql/.test(t)){
+    if(/\bgp2\b/.test(t)||(/general purpose/.test(t)&&!/gp3/.test(t)))
+      F("MEDIUM","Storage","RDS on GP2 — AWS recommends GP3 for all new deployments",
+        "Same price, 3,000 baseline IOPS vs burst-based","Change storage_type to gp3.");
+    else P("RDS storage GP3 (or type unstated)");}
+  if(t.includes("cognito")){
+    if(/\bmfa\b|multi-?factor|totp/.test(t)) P("Cognito MFA configured");
+    else F(hipaa?"HIGH":"MEDIUM","Identity","Cognito present but MFA not mentioned",
+      hipaa?"HIPAA requires MFA for PHI access":"MFA is baseline for user pools",
+      "Set MfaConfiguration ON/OPTIONAL with TOTP.");}
+  if(hipaa){
+    if(t.includes("lambda")&&!/lambda[^.\n]{0,120}(vpc|private subnet)/.test(t))
+      F("CRITICAL","HIPAA","Lambda not confirmed inside VPC for PHI workload",
+        "HIPAA BAA requires PHI compute in VPC","Add VpcConfig + S3/KMS VPC endpoints.");
+    if(/\balb\b|application load balancer/.test(t)&&!/access log/.test(t))
+      F("MEDIUM","HIPAA","ALB access logs not mentioned (required audit trail)",
+        "~$0.50/GB — negligible","Enable access_logs to an encrypted S3 bucket, 90-day retention.");
+    if(t.includes("cloudwatch")&&/30[\s-]day/.test(t)&&!/90|180|365/.test(t))
+      F("HIGH","HIPAA","CloudWatch retention 30 days — HIPAA needs 90+","Compliance gap","Set retention_in_days ≥ 90.");
+    if(t.includes("s3")&&/(90[\s-]day)[^.\n]{0,60}(glacier|archive)/.test(t)&&!/7[\s-]year|seven year/.test(t))
+      F("CRITICAL","HIPAA","S3 lifecycle archives at 90 days — records need 7-year retention",
+        "HIPAA violation","Retain 7+ years; Glacier transition is fine, deletion is not.");
+  }
+  // agentic DLQ
+  if(/agentic|ai agent|orchestrat|step functions/.test(t)&&t.includes("lambda")){
+    if(/\bdlq\b|dead.letter|retry and error|error.handling/.test(t)) P("Async failure handling (DLQ/retry) present");
+    else F("MEDIUM","Reliability","Async/agentic Lambda workload without DLQ or retry handling",
+      "Failed invocations silently dropped","Add an SQS DLQ + CloudWatch alarm, or Step Functions retry/catch.");}
+  return {findings,passed,tallyInfo};
+}
+
+/* ========== AWS SOW Validator SOW scorer — faithful port ========== */
+const CRITERIA=[
+ {id:"SOW-01",name:"Objectives and business outcome",weight:10,sig:["objective","goal","outcome","purpose","business case"],fix:"Add a short objectives section naming the business outcome and how success will be recognised."},
+ {id:"SOW-02",name:"In-scope deliverables",weight:15,sig:["deliverable","in scope","in-scope","scope of work","will provide"],fix:"List deliverables individually. Replace activity verbs with artefacts."},
+ {id:"SOW-03",name:"Explicit out-of-scope",weight:15,sig:["out of scope","out-of-scope","excluded","exclusion","not included"],fix:"Name the adjacent work a customer would assume is included and exclude it explicitly."},
+ {id:"SOW-04",name:"Acceptance criteria",weight:15,sig:["acceptance criteria","acceptance","sign-off","signoff","definition of done"],fix:"Attach acceptance criteria per deliverable, evaluable by a third party."},
+ {id:"SOW-05",name:"Assumptions and dependencies",weight:10,sig:["assumption","dependency","dependencies","customer will provide","prerequisite"],fix:"List assumptions and customer dependencies with dates and slip consequences."},
+ {id:"SOW-06",name:"Timeline, phases and milestones",weight:10,sig:["milestone","phase","timeline","schedule","week","sprint"],fix:"Break the work into phases with entry and exit criteria."},
+ {id:"SOW-07",name:"Commercials and change control",weight:10,sig:["change control","change request","fixed price","time and materials","pricing","invoice"],fix:"State the pricing model and add a change-control clause."},
+ {id:"SOW-08",name:"Roles and responsibilities",weight:5,sig:["raci","responsibilit","roles","accountable","project manager"],fix:"Add a responsibility table naming roles on both sides."},
+ {id:"SOW-09",name:"Architecture alignment",weight:10,sig:["aws","amazon","architecture","region","vpc"],fix:"Reference the specific AWS services so SOW and design cannot drift."}];
+const BAND_LABEL=["Absent","Mentioned","Partial","Adequate","Strong"];
+function isToc(t,idx){
+  const ls=t.lastIndexOf("\n",idx)+1; let le=t.indexOf("\n",idx); if(le<0)le=t.length;
+  return /\t\s*\d{1,4}\s*$/.test(t.slice(ls,le));}
+function bestWindow(t,hits,signals,span=600){
+  let best="",bs=[-1,-1],fb="";
+  for(const h of hits){let s=0;
+    for(;;){const i=t.indexOf(h,s); if(i<0)break;
+      if(!fb) fb=t.slice(i,i+span);
+      if(!isToc(t,i)){const w=t.slice(i,i+span);
+        const sc=[signals.filter(x=>w.includes(x)).length,w.split(/\s+/).length];
+        if(sc[0]>bs[0]||(sc[0]===bs[0]&&sc[1]>bs[1])){bs=sc;best=w;}}
+      s=i+h.length;}}
+  return best||fb;}
+function heuristicBand(t,signals){
+  const hits=signals.filter(s=>t.includes(s));
+  if(!hits.length) return [0,"No matching language found."];
+  const w=bestWindow(t,hits,signals), ww=w.split(/\s+/).length;
+  if(hits.length>=3&&ww>60) return [3,`${hits.length} related signals with substantive text.`];
+  if(hits.length>=2&&ww>100) return [3,`${hits.length} signals with a substantial section.`];
+  if(hits.length>=2) return [2,`${hits.length} signals, limited detail around them.`];
+  if(ww>120) return [2,"Referenced once, within a substantial section."];
+  return [1,"Referenced once, little supporting detail."];}
+function scoreSOW(text){
+  const t=text.toLowerCase(); const scores=[];
+  for(const c of CRITERIA){const [band,why]=heuristicBand(t,c.sig);
+    scores.push({...c,band,why});}
+  const earned=scores.reduce((a,s)=>a+s.weight*(s.band/4),0);
+  const avail=scores.reduce((a,s)=>a+s.weight,0);
+  const total=+(earned/avail*100).toFixed(1);
+  const rating=total>=80?"Strong":total>=60?"Acceptable":total>=40?"Weak":"Inadequate";
+  const gaps=scores.filter(s=>s.band<=2).sort((a,b)=>a.band-b.band||b.weight-a.weight);
+  const summary=gaps.length?`${gaps.length} criteri${gaps.length===1?"on":"a"} below Adequate. Largest exposure: '${gaps[0].name}' (${gaps[0].weight}% of weight, scored ${BAND_LABEL[gaps[0].band]}).`
+    :"No material gaps. Every criterion scored Adequate or better.";
+  return {scores,total,rating,summary};}
+
+/* ========== UI wiring ========== */
+const $=id=>document.getElementById(id);
+let lastReport=null;
+
+/* ========== Auth — Cognito Identity Provider REST API, direct from browser ========== */
+const AUTH_TOKEN_KEY="pv_id_token", AUTH_EXP_KEY="pv_id_token_exp", AUTH_EMAIL_KEY="pv_email";
+let AUTH_CFG=null, ME=null, pendingSignupEmail="";
+async function loadAuthConfig(){
+  if(AUTH_CFG) return AUTH_CFG;
+  const r=await fetch("/config/auth.json",{cache:"no-store"});
+  if(!r.ok) throw new Error(`Auth config unavailable (HTTP ${r.status}).`);
+  AUTH_CFG=await r.json();
+  if(!AUTH_CFG.region||!AUTH_CFG.userPoolId||!AUTH_CFG.clientId) throw new Error("Auth config is incomplete.");
+  applyUploadLimit();
+  return AUTH_CFG;
+}
+function cognitoMessage(type,fallback){
+  const M={UsernameExistsException:"An account with that email already exists — sign in instead.",
+    NotAuthorizedException:"Incorrect email or password.",
+    UserNotFoundException:"No account found for that email.",
+    UserNotConfirmedException:"That account isn't verified yet — enter the code we emailed you.",
+    CodeMismatchException:"That code doesn't match — check and try again.",
+    ExpiredCodeException:"That code expired — request a new one.",
+    InvalidPasswordException:"Password must be at least 8 characters, with upper/lowercase and a number.",
+    LimitExceededException:"Too many attempts — wait a bit and try again.",
+    TooManyRequestsException:"Too many requests — wait a moment and try again."};
+  return M[type]||fallback||"Something went wrong — try again.";
+}
+async function cognitoCall(action,payload){
+  await loadAuthConfig();
+  const resp=await fetch(`https://cognito-idp.${AUTH_CFG.region}.amazonaws.com/`,{method:"POST",
+    headers:{"Content-Type":"application/x-amz-json-1.1","X-Amz-Target":`AWSCognitoIdentityProviderService.${action}`},
+    body:JSON.stringify(payload)});
+  let data={}; try{data=await resp.json();}catch{}
+  if(!resp.ok){
+    const type=String(data.__type||"Error").split("#").pop();
+    throw Object.assign(new Error(cognitoMessage(type,data.message)),{cognitoType:type});
+  }
+  return data;
+}
+function jwtExpiryMs(idToken){
+  // The `exp` claim is authoritative — Cognito ID tokens are valid for one hour.
+  try{
+    const p=JSON.parse(atob(idToken.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));
+    return p.exp ? p.exp*1000 : 0;
+  }catch{ return 0; }
+}
+function saveSession(email,idToken,expiresInSec){
+  try{
+    const fromClaim=jwtExpiryMs(idToken);
+    const fromField=Date.now()+(Number(expiresInSec||3600)*1000);
+    sessionStorage.setItem(AUTH_TOKEN_KEY,idToken);
+    sessionStorage.setItem(AUTH_EXP_KEY,String(fromClaim||fromField));
+    sessionStorage.setItem(AUTH_EMAIL_KEY,email);
+  }catch{}
+}
+function clearSession(){
+  try{sessionStorage.removeItem(AUTH_TOKEN_KEY);sessionStorage.removeItem(AUTH_EXP_KEY);sessionStorage.removeItem(AUTH_EMAIL_KEY);}catch{}
+  ME=null;
+}
+function getIdToken(){
+  try{
+    const tok=sessionStorage.getItem(AUTH_TOKEN_KEY), exp=+sessionStorage.getItem(AUTH_EXP_KEY);
+    if(!tok||!exp||Date.now()>=(exp-30000)) return null;
+    return tok;
+  }catch{return null;}
+}
+// The ID token carries the `name` attribute captured at sign-up. Decode the
+// payload rather than storing it separately, so it survives on any device.
+function getSessionName(){
+  try{
+    const t=getIdToken(); if(!t) return "";
+    const p=JSON.parse(atob(t.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));
+    const n=(p.name||"").trim();
+    if(n) return n.split(/\s+/)[0];
+    const e=p.email||getSessionEmail();
+    return e ? e.split("@")[0] : "";
+  }catch{ const e=getSessionEmail(); return e?e.split("@")[0]:""; }
+}
+function getSessionEmail(){try{return sessionStorage.getItem(AUTH_EMAIL_KEY)||"";}catch{return "";}}
+function isSignedIn(){return !!getIdToken();}
+function showAuthPanel(which){
+  $("authSignIn").style.display=which==="signin"?"block":"none";
+  $("authSignUp").style.display=which==="signup"?"block":"none";
+  $("authVerify").style.display=which==="verify"?"block":"none";
+  $("authSec").style.display=which?"block":"none";
+  setAuthModal(!!which);
+}
+// The auth flow lives in a modal so it never pushes page content around.
+let _lastFocus=null;
+function setAuthModal(open){
+  const m=$("authModal"); if(!m) return;
+  if(open){
+    _lastFocus=document.activeElement;
+    m.hidden=false;
+    const t=$("authModalTitle");
+    const vis=["authSignIn","authSignUp","authVerify"].find(id=>$(id).style.display!=="none");
+    if(t) t.textContent = vis==="authSignUp" ? "Create an account"
+                        : vis==="authVerify" ? "Verify your email" : "Sign in";
+    const first=m.querySelector('input:not([type=hidden]),button');
+    if(first) setTimeout(()=>first.focus(),30);
+  }else{
+    m.hidden=true;
+    if(_lastFocus && _lastFocus.focus) _lastFocus.focus();
+    _lastFocus=null;
+  }
+}
+function closeAuthModal(){ setAuthModal(false); }
+function sessionExpired(msg){
+  const wasSignedIn=!!sessionStorage.getItem(AUTH_TOKEN_KEY);
+  clearSession();
+  renderAcctBar();
+  if(wasSignedIn){
+    showAuthPanel("signin");
+    showErr(msg||"Your session expired — please sign in again.");
+  }
+}
+function renderNavAuth(){
+  const signedIn=isSignedIn();
+  // The upload tool only exists for signed-in users; everyone else sees the gate,
+  // which points them at deploying their own copy rather than a dead end.
+  const tool=$("validateTool"), gate=$("validateGate");
+  if(tool) tool.hidden=!signedIn;
+  if(gate) gate.hidden=signedIn;
+  $("navSignIn").hidden=signedIn;
+  $("navAcct").hidden=!signedIn;
+  if(signedIn){
+    const nm=getSessionName();
+    const hello=$("acctHello");
+    hello.textContent = nm ? `Hello, ${nm}` : "Signed in";
+    hello.title = getSessionEmail();
+    const r=$("acctRuns2");
+    if(ME){
+      const remaining=(ME.free_runs||0)-(ME.runs_used||0);
+      r.textContent=`${remaining} run${remaining===1?"":"s"} left`;
+      r.className="runs"+(remaining<=0?" zero":"");
+      r.hidden=false;
+    }else{ r.hidden=true; }
+  }
+}
+function renderAcctBar(){
+  const bar=$("acctBar");
+  renderNavAuth();
+  if(isSignedIn()){
+    bar.style.display="flex";
+    showAuthPanel(null);
+    $("acctEmail").textContent=getSessionEmail();
+    const el=$("acctRuns");
+    if(ME){
+      const remaining=(ME.free_runs||0)-(ME.runs_used||0);
+      el.innerHTML=`Runs remaining: <b>${remaining}</b>`;
+      el.className="runs"+(remaining<=0?" zero":"");
+      if(remaining<=0) renderHostPanel(); else $("hostSec").style.display="none";
+    }else{
+      el.textContent="";
+    }
+  }else{
+    bar.style.display="none";
+    $("hostSec").style.display="none";
+    showAuthPanel(null);
+  }
+}
+async function fetchMe(){
+  const tok=getIdToken(); if(!tok) return null;
+  try{
+    const resp=await fetch("/api/me",{headers:{Authorization:"Bearer "+tok}});
+    if(!resp.ok){
+      // Informational endpoint: leave the session alone. Local expiry in
+      // getIdToken() is the single source of truth for "signed in".
+      console.warn("/api/me returned",resp.status,"— keeping the session");
+      return null;
+    }
+    ME=await resp.json();
+    renderAcctBar();
+    return ME;
+  }catch{return null;}
+}
+$("signInForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const email=$("siEmail").value.trim(), pass=$("siPassword").value;
+  $("siErr").textContent="";
+  const btn=e.target.querySelector("button"); btn.disabled=true;
+  try{
+    const data=await cognitoCall("InitiateAuth",{AuthFlow:"USER_PASSWORD_AUTH",ClientId:AUTH_CFG.clientId,
+      AuthParameters:{USERNAME:email,PASSWORD:pass}});
+    if(data.ChallengeName) throw new Error("This account needs additional verification not supported here.");
+    const ar=data.AuthenticationResult;
+    if(!ar||!ar.IdToken) throw new Error("Sign-in did not return a session.");
+    saveSession(email,ar.IdToken,ar.ExpiresIn);
+    $("siPassword").value="";
+    renderAcctBar();
+    await fetchMe();
+  }catch(err){
+    if(err.cognitoType==="UserNotConfirmedException"){
+      pendingSignupEmail=email; $("verifyEmailLabel").textContent=email; showAuthPanel("verify");
+    } else $("siErr").textContent=err.message;
+  }finally{btn.disabled=false;}
+});
+$("signUpForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const email=$("suEmail").value.trim(), pass=$("suPassword").value;
+  // Fall back to the email local-part so a blank name never blocks sign-up.
+  const displayName=($("suName").value.trim()||email.split("@")[0]).slice(0,60);
+  $("suErr").innerHTML="";
+  const btn=e.target.querySelector("button"); btn.disabled=true;
+  try{
+    await cognitoCall("SignUp",{ClientId:AUTH_CFG.clientId,Username:email,Password:pass,
+      UserAttributes:[{Name:"email",Value:email},{Name:"name",Value:displayName}]});
+    pendingSignupEmail=email;
+    $("verifyEmailLabel").textContent=email;
+    showAuthPanel("verify");
+  }catch(err){
+    // The backend's PreSignUp Lambda trigger rejects any address outside the
+    // allow-list (@amazon.com + one owner account) — Cognito surfaces that as
+    // UserLambdaValidationException with the trigger's message embedded in it.
+    // Surface the reason and steer the visitor to "deploy your own" instead of
+    // leaving them at a dead end.
+    if(err.cognitoType==="UserLambdaValidationException"){
+      const m=/PreSignUp failed with error\s*(.*?)\.?\s*$/i.exec(err.message||"");
+      const reason=(m&&m[1])?m[1]:"Sign-up isn't available for that address on this hosted instance.";
+      $("suErr").innerHTML=`${esc(reason)} <a href="#deploy">Deploy your own copy instead →</a>`;
+    }else{
+      $("suErr").textContent=err.message;
+    }
+  }
+  finally{btn.disabled=false;}
+});
+$("verifyForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const code=$("vCode").value.trim();
+  $("vErr").textContent=""; $("vErr").style.color="";
+  const btn=e.target.querySelector("button"); btn.disabled=true;
+  try{
+    await cognitoCall("ConfirmSignUp",{ClientId:AUTH_CFG.clientId,Username:pendingSignupEmail,ConfirmationCode:code});
+    const suPass=$("suPassword").value;
+    if(suPass){
+      const data=await cognitoCall("InitiateAuth",{AuthFlow:"USER_PASSWORD_AUTH",ClientId:AUTH_CFG.clientId,
+        AuthParameters:{USERNAME:pendingSignupEmail,PASSWORD:suPass}});
+      const ar=data.AuthenticationResult;
+      if(ar&&ar.IdToken){saveSession(pendingSignupEmail,ar.IdToken,ar.ExpiresIn);renderAcctBar();await fetchMe();return;}
+    }
+    $("siEmail").value=pendingSignupEmail;
+    showAuthPanel("signin");
+    showErr("Email verified — sign in to continue.");
+  }catch(err){$("vErr").textContent=err.message;}
+  finally{btn.disabled=false;}
+});
+$("resendCode").addEventListener("click",async()=>{
+  $("vErr").style.color=""; $("vErr").textContent="";
+  try{
+    await cognitoCall("ResendConfirmationCode",{ClientId:AUTH_CFG.clientId,Username:pendingSignupEmail});
+    $("vErr").style.color="var(--pass)"; $("vErr").textContent="Code resent.";
+  }catch(err){$("vErr").textContent=err.message;}
+});
+$("toSignUp").addEventListener("click",()=>showAuthPanel("signup"));
+$("toSignIn").addEventListener("click",()=>showAuthPanel("signin"));
+$("signOutBtn").addEventListener("click",()=>{clearSession();renderAcctBar();});
+$("signOutBtn2").addEventListener("click",()=>{clearSession();renderAcctBar();});
+$("navSignIn").addEventListener("click",()=>showAuthPanel("signin"));
+const _g=$("gateSignIn"); if(_g) _g.addEventListener("click",()=>showAuthPanel("signin"));
+$("authClose").addEventListener("click",closeAuthModal);
+// Backdrop click closes; clicks inside the dialog must not bubble out to it.
+$("authModal").addEventListener("click",e=>{ if(e.target===$("authModal")) closeAuthModal(); });
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape" && !$("authModal").hidden) closeAuthModal();
+});
+
+/* ========== "Deploy your own" panel — no credits, no purchasing ========== */
+const DEFAULT_REPO_URL="https://github.com/schinchli/aws-sow-validator";
+function repoNameFromUrl(url){
+  try{
+    const clean=url.replace(/\.git$/,"").replace(/\/+$/,"");
+    const parts=clean.split("/");
+    return parts[parts.length-1]||"aws-sow-validator";
+  }catch{return "aws-sow-validator";}
+}
+// The CDK app that deploys this stack lives at infrastructure/cdk inside the repo, not
+// the repo root — the clone command must cd into it before installing and
+// deploying, whichever repo URL (default or server-provided) is in play.
+function deploySnippetText(url){
+  const repo=url||DEFAULT_REPO_URL;
+  const name=repoNameFromUrl(repo);
+  return `git clone ${repo}\ncd ${name}/infrastructure/cdk\nnpm ci\nnpx cdk deploy PocValidatorWebStack`;
+}
+function renderHostPanel(payload){
+  payload=payload||{};
+  const url=payload.self_host_url; // never invented — only used when the server sends it
+  $("hostMsg").textContent=payload.message||
+    "The hosted demo gives every verified account one free full agent review. This tool is open "+
+    "source and deploys into your own AWS account — no quota there.";
+  if(url){
+    $("hostLink").href=url;
+    $("hostLink").textContent="Deploy your own →";
+    $("hostSnippet").style.display="block";
+    $("hostSnippet").textContent=deploySnippetText(url);
+    $("hostCopy").style.display="inline-block";
+  }else{
+    $("hostLink").href=DEFAULT_REPO_URL;
+    $("hostLink").textContent="See the repository →";
+    $("hostSnippet").style.display="none";
+    $("hostCopy").style.display="none";
+  }
+  $("hostSec").style.display="block";
+  syncDeploySection(url);
+}
+$("hostCopy").addEventListener("click",async()=>{
+  const txt=$("hostSnippet").textContent;
+  try{await navigator.clipboard.writeText(txt);$("hostCopy").textContent="Copied!";}
+  catch{$("hostCopy").textContent="Select the text above to copy";}
+  setTimeout(()=>{$("hostCopy").textContent="Copy command";},2000);
+});
+// Permanent "deploy your own" CTA near the bottom of the page — always visible,
+// independent of whether the free-run quota has been hit. Uses the same
+// self_host_url the server may send (see renderHostPanel above); falls back to
+// the repository link already referenced elsewhere on the page.
+function syncDeploySection(url){
+  const repo=url||DEFAULT_REPO_URL;
+  const snippet=$("deploySnippet"), link=$("deployRepoLink");
+  if(snippet) snippet.textContent=deploySnippetText(url);
+  if(link) link.href=repo;
+}
+const deployCopyBtn=$("deployCopy");
+if(deployCopyBtn) deployCopyBtn.addEventListener("click",async()=>{
+  const txt=$("deploySnippet").textContent;
+  try{await navigator.clipboard.writeText(txt);deployCopyBtn.textContent="Copied!";}
+  catch{deployCopyBtn.textContent="Select the text above to copy";}
+  setTimeout(()=>{deployCopyBtn.textContent="Copy command";},2000);
+});
+syncDeploySection();
+
+/* ========== Agent-enabled gate — self-hosted installs may run deterministic-only ========== */
+function applyAgentAvailability(){
+  const enabled=!AUTH_CFG||AUTH_CFG.agentEnabled!==false; // default true if the field is absent
+  $("agentBtn").disabled=!enabled;
+  $("agentBtn").title=enabled?"":"Full agent review is disabled on this install.";
+  $("detOnly").disabled=!enabled;
+  $("agentDisabledNote").style.display=enabled?"none":"block";
+}
+
+// init — restore any live session, apply agent availability, refresh /api/me in the background
+loadAuthConfig().catch(()=>{}).finally(()=>{
+  applyAgentAvailability();
+  renderAcctBar();
+  if(isSignedIn()) fetchMe();
+});
+
+const drop=$("drop"), fileIn=$("file");
+drop.addEventListener("click",()=>fileIn.click());
+drop.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();fileIn.click();}});
+["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
+drop.addEventListener("drop",e=>{const f=e.dataTransfer.files[0]; if(f) handleFile(f);});
+fileIn.addEventListener("change",()=>{if(fileIn.files[0]) handleFile(fileIn.files[0]);});
+$("pasteToggle").addEventListener("click",()=>{
+  const tb=$("pasteBox"),b=$("runPaste");
+  const show=tb.style.display!=="block";
+  tb.style.display=show?"block":"none"; b.style.display=show?"inline-block":"none";
+  if(show) tb.focus();});
+$("runPaste").addEventListener("click",()=>{
+  const v=$("pasteBox").value.trim();
+  if(v.length<200){showErr("That doesn't look like a full SOW — paste the complete text including the cost table.");return;}
+  validate(v,"pasted text");});
+$("reset").addEventListener("click",()=>{
+  $("report").style.display="none"; $("err").style.display="none";
+  fileIn.value=""; window.scrollTo({top:0});});
+function showErr(msg){const e=$("err");e.textContent=msg;e.style.display="block";}
+// Server is the authority (it enforces the same cap and returns limit_bytes on
+// 413). AUTH_CFG.maxUploadBytes overrides this once /config/auth.json loads.
+let MAX_UPLOAD_BYTES=5242880;
+function fmtMb(b){return (b/1048576).toFixed(2);}
+function applyUploadLimit(){
+  if(AUTH_CFG && Number(AUTH_CFG.maxUploadBytes)>0) MAX_UPLOAD_BYTES=Number(AUTH_CFG.maxUploadBytes);
+  const el=$("maxMb"); if(el) el.textContent=fmtMb(MAX_UPLOAD_BYTES).replace(/\.00$/,"");
+}
+async function handleFile(f){
+  $("err").style.display="none";
+  if(!/\.docx$/i.test(f.name)){
+    showErr("Only Word .docx files can be uploaded. For a PDF or plain text, copy the text and use the paste option instead.");
+    return;
+  }
+  if(f.size>MAX_UPLOAD_BYTES){
+    showErr(`That file is ${fmtMb(f.size)} MB — the limit is ${fmtMb(MAX_UPLOAD_BYTES)} MB `+
+      `(${MAX_UPLOAD_BYTES.toLocaleString()} bytes). Trim the document or use the paste option instead.`);
+    return;
+  }
+  try{
+    validate(await docxToText(await f.arrayBuffer()),f.name);
+  }catch(err){showErr("Could not read that file: "+err.message);}
+}
+function validate(text,srcName){
+  const client=$("client").value.trim();
+  const {findings,passed,tallyInfo}=runChecks(text,client);
+  const score=scoreSOW(text);
+  render(findings,passed,tallyInfo,score,srcName,client);
+  lastReport={findings,passed,tallyInfo,score,srcName,client,text,when:new Date().toLocaleString()};
+  $("confirmSec").style.display="none"; $("agentSec").style.display="none";
+}
+const SEV_ORDER={CRITICAL:0,HIGH:1,MEDIUM:2,LOW:3};
+function render(findings,passed,tally,score,src,client){
+  findings.sort((a,b)=>SEV_ORDER[a.sev]-SEV_ORDER[b.sev]);
+  const n=s=>findings.filter(f=>f.sev===s).length;
+  const [nc,nh,nm,nl]=["CRITICAL","HIGH","MEDIUM","LOW"].map(n);
+  const v=$("verdict"),vw=$("vword"),vy=$("vwhy");
+  v.className="verdict "+(nc?"v-rej":nh?"v-fix":nm?"v-cond":"v-ok");
+  vw.textContent=nc?"❌ REJECTED":nh?"⚠️ FIX REQUIRED":nm?"◑ CONDITIONAL PASS":"✅ APPROVED";
+  vy.textContent=nc?`${nc} critical finding${nc>1?"s":""} must be resolved before this SOW is shared.`
+    :nh?`${nh} high-severity finding${nh>1?"s":""} to fix before delivery.`
+    :nm?"Medium findings remain — fixable in one editing pass."
+    :"All deterministic checks passed. Human review still applies.";
+  $("chips").innerHTML=
+    `<span class="chip c-crit">Critical ${nc}</span><span class="chip c-high">High ${nh}</span>`+
+    `<span class="chip c-med">Medium ${nm}</span><span class="chip c-low">Low ${nl}</span>`+
+    `<span class="chip c-pass">Passed ${passed.length}</span>`+
+    `<span class="chip c-score">SOW score ${score.total} — ${score.rating}</span>`;
+  const cls={CRITICAL:"crit",HIGH:"high",MEDIUM:"med",LOW:"low"};
+  $("findings").innerHTML=findings.length?findings.map(f=>
+    `<div class="finding f-${cls[f.sev]}"><div class="stripe"></div><div class="body">
+      <div class="head"><span class="sev s-${cls[f.sev]}">${f.sev}</span>
+      <span class="title">${esc(f.issue)}</span><span class="cat">${esc(f.cat)}</span></div>
+      <div class="impact">Impact: <b>${esc(f.impact)}</b></div>
+      <div class="detail">${esc(f.detail)}</div></div></div>`).join("")
+    :'<p class="sub">No findings — clean sheet on every deterministic check.</p>';
+  // tally
+  if(tally){
+    $("secTally").style.display="";
+    const ok=Math.abs(tally.delta)<=0.011;
+    $("tally").innerHTML=
+      cell("Rows",tally.rows.length)+cell("Rows sum","$"+tally.sum.toFixed(2))+
+      cell("Stated total","$"+tally.stated.toFixed(2))+
+      `<div class="cell"><div class="l">Delta</div><div class="v ${ok?"ok":"bad"}">${tally.delta>0?"+":""}${tally.delta.toFixed(2)}</div></div>`+
+      (tally.statedAnnual!=null?cell("Stated annual","$"+tally.statedAnnual.toFixed(2)):"");
+    $("rowsSummary").textContent=`Parsed cost rows (${tally.rows.length})`;
+    $("rowsTable").innerHTML="<tr><th>Service</th><th>Monthly</th></tr>"+
+      tally.rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="num">$${r.val.toFixed(2)}</td></tr>`).join("");
+  } else $("secTally").style.display="none";
+  // score table
+  $("scoreChip").textContent=`${score.total} / 100 — ${score.rating} (heuristic floor)`;
+  $("scoreSummary").textContent=score.summary;
+  $("criteriaTable").innerHTML="<tr><th>Criterion</th><th>Weight</th><th>Band</th><th>Fix (if gap)</th></tr>"+
+    score.scores.map(s=>`<tr><td>${esc(s.name)}</td><td class="num">${s.weight}%</td>
+      <td><span class="band b-${s.band}">${s.band} — ${BAND_LABEL[s.band]}</span></td>
+      <td class="gapfix">${s.band<=2?esc(s.fix):"—"}</td></tr>`).join("");
+  $("passSummary").textContent=`${passed.length} checks passed`;
+  $("passList").innerHTML=passed.map(p=>`<li>✓ ${esc(p)}</li>`).join("");
+  $("meta").textContent=`Source: ${src}${client?` · Client: ${client}`:""} · Deterministic checks only — pair with a human/model deep review before delivery.`;
+  $("report").style.display="block";
+  $("report").scrollIntoView({behavior:"smooth",block:"start"});
+  setupDownload();
+}
+function cell(l,v){return `<div class="cell"><div class="l">${l}</div><div class="v">${v}</div></div>`;}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function setupDownload(){
+  const btn=$("dl");
+  btn.style.display="inline-block";
+  btn.onclick=()=>{
+    if(!lastReport)return; const r=lastReport;
+    const md=["# AWS SOW Validator Report","",`Source: ${r.srcName}  |  Client: ${r.client||"—"}  |  ${r.when}`,"",
+      "## Findings",...(r.findings.length?r.findings.map(f=>`- **[${f.sev}] ${f.issue}** (${f.cat})\n  - Impact: ${f.impact}\n  - Fix: ${f.detail}`):["- None"]),"",
+      ...(r.tallyInfo?["## Cost tally",`Rows: ${r.tallyInfo.rows.length} · Sum: $${r.tallyInfo.sum.toFixed(2)} · Stated: $${r.tallyInfo.stated.toFixed(2)} · Delta: ${r.tallyInfo.delta.toFixed(2)}`,""]:[]),
+      `## SOW score: ${r.score.total}/100 — ${r.score.rating}`,r.score.summary,"",
+      ...r.score.scores.map(s=>`- ${s.name} (${s.weight}%): band ${s.band} ${BAND_LABEL[s.band]}${s.band<=2?" — FIX: "+s.fix:""}`),"",
+      "## Passed checks",...r.passed.map(p=>`- ${p}`)].join("\n");
+    const blob=new Blob([md],{type:"text/markdown"});
+    const a=Object.assign(document.createElement("a"),
+      {href:URL.createObjectURL(blob),
+       download:`sow-validator-${(r.client||"report").toLowerCase().replace(/\s+/g,"-")}.md`});
+    a.click(); URL.revokeObjectURL(a.href);
+  };
+}
+
+/* ========== Agent client — full review via the deployed AgentCore runtime ========== */
+function browserId(){
+  const KEY="pocvalidator_browser_id";
+  try{
+    let id=localStorage.getItem(KEY);
+    if(!id||!/^[a-f0-9]{32}$/.test(id)){
+      id=[...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,"0")).join("");
+      localStorage.setItem(KEY,id);
+    }
+    return id;
+  }catch{return "";}
+}
+function demoKey(){
+  if(CFG_DEMO_KEY) return CFG_DEMO_KEY;
+  const KEY="pocvalidator_demo_key";
+  try{
+    let k=localStorage.getItem(KEY);
+    if(!k){k=(window.prompt("Enter the demo API key for agent reviews:")||"").trim();
+      if(k) localStorage.setItem(KEY,k);}
+    return k||"";
+  }catch{return "";}
+}
+function clearDemoKey(){try{localStorage.removeItem("pocvalidator_demo_key");}catch{} }
+async function sha256Hex(s){
+  const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));
+  return [...new Uint8Array(d)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+async function invokeApi(body){
+  // CloudFront OAC signs the origin request but cannot hash the body —
+  // the viewer must supply x-amz-content-sha256 or POSTs are rejected.
+  const tok=getIdToken();
+  if(!tok){sessionExpired("Sign in to run the full agent review.");throw new Error("not_signed_in");}
+  const bodyStr=JSON.stringify(body);
+  const resp=await fetch("/api/invoke",{method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":"Bearer "+tok,
+             "x-amz-content-sha256":await sha256Hex(bodyStr)},
+    body:bodyStr});
+  let data={}; try{data=await resp.json();}catch{}
+  if(resp.status===401) sessionExpired();
+  return {resp,data};
+}
+let pendingExtraction=null;
+function baseBody(){
+  return {sow_text:lastReport.text, segment:$("segment").value,
+          industry:$("industry").value, browser_id:browserId()};
+}
+function agentBusy(on,label){
+  const b=$("agentBtn"); b.disabled=on; b.textContent=on?(label||"Reviewing…"):"Run full agent review";
+  const c=$("confirmBtn"); if(c) c.disabled=on;
+}
+function agentErr(msg,status,data){
+  if(status===401){sessionExpired("Your session expired — sign in again to continue.");return;}
+  if(status===402){
+    data=data||{};
+    ME=Object.assign(ME||{},{runs_used:data.runs_used,free_runs:data.free_runs});
+    renderAcctBar();
+    renderHostPanel(data);
+    $("hostSec").scrollIntoView({behavior:"smooth",block:"start"});
+    msg=data.message||"You've used your free hosted review. Self-host to keep going with no quota.";
+  }
+  if(status===413){
+    const lim=data&&data.limit_bytes?(data.limit_bytes/1048576).toFixed(2)+" MB":"the size limit";
+    msg=`That document is too large for a full review (limit ${lim}). Trim it or use the paste option.`;
+  }
+  showErr(msg);
+}
+$("agentBtn").addEventListener("click",async()=>{
+  if(!lastReport||!lastReport.text){showErr("Validate a SOW first — the agent reviews the extracted text.");return;}
+  $("err").style.display="none";
+  if(!isSignedIn()){
+    showAuthPanel("signin");
+    $("authSec").scrollIntoView({behavior:"smooth",block:"start"});
+    showErr("Sign in to run the full agent review — the deterministic checks above never require an account.");
+    return;
+  }
+  if($("detOnly").checked){
+    // Tier 1: rule packs + pricing + heuristic SOW score run inside the web
+    // Lambda — grounded service detection, no model, sub-second, ~$0.
+    agentBusy(true,"Deterministic review…");
+    try{
+      const {resp,data}=await invokeApi({...baseBody(),mode:"deterministic"});
+      if(!resp.ok||data.status==="error"){agentErr(data.message||`Request failed (HTTP ${resp.status}).`,resp.status,data);return;}
+      if(data.status==="complete"){renderAgent(data);fetchMe();return;}
+      showErr("Unexpected response — try again.");
+    }catch(e){if(e.message!=="not_signed_in") showErr("Deterministic review failed: "+e.message);}
+    finally{agentBusy(false);}
+    return;
+  }
+  agentBusy(true,"Extracting services…");
+  try{
+    const {resp,data}=await invokeApi(baseBody());
+    if(!resp.ok||data.status==="error"){agentErr(data.message||`Request failed (HTTP ${resp.status}).`,resp.status,data);return;}
+    if(data.status==="awaiting_confirmation"){renderConfirm(data.extraction);return;}
+    if(data.status==="complete"){renderAgent(data);fetchMe();return;}
+    showErr("Unexpected agent response — try again.");
+  }catch(e){if(e.message!=="not_signed_in") showErr("Agent call failed: "+e.message);}
+  finally{agentBusy(false);}
+});
+function renderConfirm(ex){
+  pendingExtraction=ex||{services:[],edges:[],unmatched:[],notes:""};
+  const grounding=pendingExtraction.grounding||{};
+  $("svcList").innerHTML=pendingExtraction.services.map((s,i)=>{
+    const g=grounding[s];
+    const badge=g&&g.grounded
+      ?`<span class="sub" title="${esc(g.evidence||"")}">✓ in text</span>`
+      :(g?'<span class="sev s-med" title="The model reported this service but it never appears in the document.">⚠ no text evidence</span>':"");
+    return `<label class="svc-item"><input type="checkbox" ${!g||g.grounded?"checked":""} data-svc="${esc(s)}">${esc(s)} ${badge}</label>`;
+  }).join("")
+    ||'<span class="sub">No services recognised — nothing to review.</span>';
+  const bits=[];
+  if(pendingExtraction.edges.length) bits.push("Edges: "+pendingExtraction.edges.map(e=>`${esc(e[0])}→${esc(e[1])}`).join(", "));
+  if(pendingExtraction.unmatched.length) bits.push(`<b>Not recognised (will NOT be reviewed):</b> ${pendingExtraction.unmatched.map(esc).join(", ")}`);
+  if(pendingExtraction.notes) bits.push(esc(pendingExtraction.notes));
+  $("svcNotes").innerHTML=bits.join("<br>");
+  $("confirmSec").style.display="block";
+  $("confirmSec").scrollIntoView({behavior:"smooth",block:"start"});
+}
+$("cancelConfirm").addEventListener("click",()=>{$("confirmSec").style.display="none";});
+$("confirmBtn").addEventListener("click",async()=>{
+  const checked=[...$("svcList").querySelectorAll("input:checked")].map(i=>i.dataset.svc);
+  if(!checked.length){showErr("Keep at least one service ticked, or cancel.");return;}
+  const edges=pendingExtraction.edges.filter(e=>checked.includes(e[0])&&checked.includes(e[1]));
+  agentBusy(true,"Running full review…");
+  try{
+    const {resp,data}=await invokeApi({...baseBody(),services:checked,edges,extraction_confirmed:true});
+    if(!resp.ok||data.status==="error"){agentErr(data.message||`Request failed (HTTP ${resp.status}).`,resp.status,data);return;}
+    if(data.status==="complete"){$("confirmSec").style.display="none";renderAgent(data);fetchMe();return;}
+    showErr("Unexpected agent response — try again.");
+  }catch(e){if(e.message!=="not_signed_in") showErr("Agent call failed: "+e.message);}
+  finally{agentBusy(false);}
+});
+/* ========== Google Drive panel (optional backend feature) ========== */
+let driveFiles=[];
+async function driveApi(pathAndQuery){
+  const resp=await fetch(pathAndQuery,{headers:{"X-Demo-Key":demoKey()}});
+  let data={}; try{data=await resp.json();}catch{}
+  return {resp,data};
+}
+$("driveBtn").addEventListener("click",async()=>{
+  const sec=$("driveSec"); sec.style.display="block";
+  $("driveStatus").textContent="Loading folder…";
+  try{
+    const {resp,data}=await driveApi("/api/drive/list");
+    if(resp.status===501||data.code==="drive_not_configured"){
+      $("driveStatus").textContent="Google Drive is not configured yet (optional). An admin adds a service-account key + folder id — see web/README-drive.md in the repo.";
+      return;
+    }
+    if(resp.status===401){clearDemoKey();$("driveStatus").textContent="Demo key rejected — stored key cleared, click again to re-enter.";return;}
+    if(!resp.ok||data.status!=="ok"){$("driveStatus").textContent=data.message||`Drive list failed (HTTP ${resp.status}).`;return;}
+    driveFiles=data.files||[];
+    $("driveStatus").textContent=driveFiles.length?`${driveFiles.length} document(s) in the folder. Validate one, or all.`:"The folder is empty (or nothing is shared with the service account yet).";
+    const t=$("driveTable");
+    t.style.display=driveFiles.length?"table":"none";
+    t.innerHTML="<tr><th>Document</th><th>Modified</th><th></th></tr>"+driveFiles.map((f,i)=>
+      `<tr><td>${esc(f.name)}</td><td class="num">${esc((f.modifiedTime||"").slice(0,10))}</td>
+       <td><button class="btn ghost" data-di="${i}" style="padding:4px 12px;font-size:12.5px">Validate</button></td></tr>`).join("");
+    t.querySelectorAll("button[data-di]").forEach(b=>b.addEventListener("click",()=>driveValidateOne(+b.dataset.di)));
+    $("driveBatchRow").style.display=driveFiles.length>1?"flex":"none";
+  }catch(e){$("driveStatus").textContent="Drive list failed: "+e.message;}
+});
+async function driveFetchText(i){
+  const {resp,data}=await driveApi("/api/drive/fetch?id="+encodeURIComponent(driveFiles[i].id));
+  if(!resp.ok||data.status!=="ok") throw new Error(data.message||`HTTP ${resp.status}`);
+  return data.text;
+}
+async function driveValidateOne(i){
+  $("driveStatus").textContent=`Fetching ${driveFiles[i].name}…`;
+  try{
+    const text=await driveFetchText(i);
+    validate(text,driveFiles[i].name);
+    $("driveStatus").textContent=`Validated ${driveFiles[i].name}.`;
+  }catch(e){$("driveStatus").textContent=`Fetch failed for ${driveFiles[i].name}: ${e.message}`;}
+}
+$("driveAllBtn").addEventListener("click",async()=>{
+  const btn=$("driveAllBtn"); btn.disabled=true;
+  const sum=$("driveSummary"); sum.style.display="table";
+  sum.innerHTML="<tr><th>Document</th><th>Verdict</th><th>C</th><th>H</th><th>M</th><th>L</th><th>Tally Δ</th><th>SOW score</th></tr>";
+  const client=$("client").value.trim();
+  for(let i=0;i<driveFiles.length;i++){
+    $("driveStatus").textContent=`Validating ${i+1}/${driveFiles.length}: ${driveFiles[i].name}…`;
+    let row;
+    try{
+      const text=await driveFetchText(i);
+      const {findings,tallyInfo}=runChecks(text,client);
+      const sc=scoreSOW(text);
+      const n=s=>findings.filter(f=>f.sev===s).length;
+      const [c,h,m,l]=["CRITICAL","HIGH","MEDIUM","LOW"].map(n);
+      const verdict=c?"❌ REJECTED":h?"⚠️ FIX":m?"◑ COND":"✅ PASS";
+      const delta=tallyInfo?((tallyInfo.delta>0?"+":"")+tallyInfo.delta.toFixed(2)):"—";
+      row=`<td>${esc(driveFiles[i].name)}</td><td>${verdict}</td><td class="num">${c}</td><td class="num">${h}</td><td class="num">${m}</td><td class="num">${l}</td><td class="num">${delta}</td><td class="num">${sc.total}</td>`;
+    }catch(e){row=`<td>${esc(driveFiles[i].name)}</td><td colspan="7">failed: ${esc(e.message)}</td>`;}
+    const tr=document.createElement("tr"); tr.innerHTML=row; tr.style.cursor="pointer";
+    tr.addEventListener("click",()=>driveValidateOne(i));
+    sum.appendChild(tr);
+  }
+  $("driveStatus").textContent=`Batch complete — ${driveFiles.length} document(s). Click a row for its full report.`;
+  btn.disabled=false;
+});
+
+const A_SEV={critical:"crit",high:"high",medium:"med",low:"low"};
+function renderAgent(d){
+  const vres=(d.verdict&&d.verdict.result)||"";
+  const ok=/ready/i.test(vres)&&!/not/i.test(vres);
+  $("aVerdict").className="verdict "+(ok?"v-ok":"v-fix");
+  $("aVword").textContent=(ok?"✅ ":"⚠️ ")+vres;
+  $("aVwhy").textContent=(d.verdict&&d.verdict.reasoning)||"";
+  const meta=[];
+  if(d.tier==="deterministic") meta.push("⚡ deterministic tier — rule packs only, no model");
+  else if(d.tier==="agent") meta.push("agent review (model-assisted)");
+  if(d.cached) meta.push("served from cache — zero model cost");
+  $("aMeta").textContent=meta.join(" · ");
+  const lensBits=[];
+  if(d.lenses&&d.lenses.length) lensBits.push(`<b>Well-Architected lenses applied:</b> `+d.lenses.map(l=>
+      `<a href="${esc(l.url)}" target="_blank" rel="noopener" title="${esc(l.why||"")}">${esc(l.name)}</a>`
+    ).join(" · "));
+  if(d.evidence_applied&&d.evidence_applied.length) lensBits.push(
+    `<b>Credited from the document:</b> `+d.evidence_applied.map(a=>
+      `<span title="${esc(a.evidence||"")}">${esc(a.attribute)}</span>`).join(" · "));
+  $("aLenses").innerHTML=lensBits.join("<br>");
+  const c=d.counts||{};
+  $("aChips").innerHTML=Object.entries(c).map(([k,v])=>{
+    const cl=A_SEV[k.toLowerCase()]||"low";
+    return `<span class="chip c-${cl}">${esc(k)} ${v}</span>`;}).join("");
+  $("aFindings").innerHTML=(d.findings||[]).map(f=>{
+    const cl=A_SEV[(f.severity||"").toLowerCase()]||"med";
+    return `<div class="finding f-${cl}"><div class="stripe"></div><div class="body">
+      <div class="head"><span class="sev s-${cl}">${esc(f.severity)}</span>
+      <span class="title">${esc(f.title)}</span><span class="cat">${esc(f.rule_id)} · ${esc(f.pillar||f.source||"")}</span></div>
+      ${f.rationale?`<div class="detail">${esc(f.rationale)}</div>`:""}
+      ${f.remediation?`<div class="impact">Fix: <b>${esc(f.remediation)}</b></div>`:""}
+      ${f.doc_url?`<div class="impact"><a href="${esc(f.doc_url)}" target="_blank" rel="noopener">AWS documentation</a></div>`:""}
+      </div></div>`;}).join("")||'<p class="sub">No findings from the rule packs.</p>';
+  const cost=d.cost||{};
+  $("aCostSummary").innerHTML=
+    cell("Baseline",`$${(+cost.baseline||0).toFixed(2)}`)+
+    cell("Compliance premium",`$${(+cost.compliance_premium||0).toFixed(2)}`)+
+    cell("Total / month",`$${(+cost.total||0).toFixed(2)}`)+
+    cell("Region",esc(cost.region||""));
+  const lines=cost.lines||[];
+  $("aCostRowsSummary").textContent=`Cost lines (${lines.length})`;
+  $("aCostTable").innerHTML="<tr><th>Service</th><th>Driver</th><th>Qty × rate</th><th>Monthly</th></tr>"+
+    lines.map(l=>`<tr><td>${esc(l.node_name)}${l.is_premium?' <span class="sev s-med">premium</span>':""}</td>
+      <td>${esc(l.driver_label||l.driver)}</td>
+      <td class="num">${(+l.quantity).toLocaleString()} × $${(+l.unit_rate).toFixed(4)}</td>
+      <td class="num">$${(+l.monthly_cost).toFixed(2)}</td></tr>`).join("");
+  const s=d.sow;
+  if(s){
+    $("aScoreChip").textContent=`${s.score} / 100 — ${s.rating}${s.model_assisted?" (model-assisted)":" (heuristic floor)"}`;
+    $("aScoreSummary").textContent=s.summary||"";
+    $("aCriteria").innerHTML="<tr><th>Criterion</th><th>Weight</th><th>Band</th><th>Justification / fix</th></tr>"+
+      (s.criteria||[]).map(cr=>`<tr><td>${esc(cr.name)}</td><td class="num">${cr.weight}%</td>
+        <td><span class="band b-${cr.band}">${cr.band} — ${esc(cr.band_label)}</span></td>
+        <td class="gapfix">${esc(cr.justification||"")}${cr.band<=2&&cr.fix?"<br><b>Fix:</b> "+esc(cr.fix):""}</td></tr>`).join("");
+  }else{
+    $("aScoreChip").textContent="no SOW score returned";
+    $("aScoreSummary").textContent=""; $("aCriteria").innerHTML="";
+  }
+  $("aRecs").innerHTML=(d.recommendations||[]).map(r=>
+    `<div class="finding f-low"><div class="stripe"></div><div class="body">
+     <div class="head"><span class="sev s-low">${esc(r.kind||"doc")}</span>
+     <span class="title"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></span></div>
+     <div class="detail">${esc(r.summary||"")} ${r.why?"— "+esc(r.why):""}</div></div></div>`).join("")
+    ||'<p class="sub">None returned.</p>';
+  if(d.share_url){
+    $("aShareRow").style.display="flex";
+    $("shareNote").textContent="Share link created — 3 views, expires in 30 days.";
+    $("copyShare").onclick=async()=>{
+      try{await navigator.clipboard.writeText(d.share_url);$("shareNote").textContent="Copied: "+d.share_url;}
+      catch{$("shareNote").textContent=d.share_url;}
+    };
+  }else{$("aShareRow").style.display="none";}
+  $("agentSec").style.display="block";
+  $("agentSec").scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+/* ========== Sticky nav: smooth scroll + active-section highlight ========== */
+document.addEventListener("click",e=>{
+  const a=e.target.closest('a[href^="#"]');
+  if(!a) return;
+  const id=a.getAttribute("href").slice(1);
+  const el=document.getElementById(id);
+  if(!el) return;
+  e.preventDefault();
+  el.scrollIntoView({behavior:"smooth",block:"start"});
+  try{history.replaceState(null,"","#"+id);}catch{}
+});
+(function(){
+  const links=[...document.querySelectorAll("#navLinks a")];
+  const map=new Map(links.map(a=>[a.getAttribute("href").slice(1),a]));
+  const targets=[...map.keys()].map(id=>document.getElementById(id)).filter(Boolean);
+  if(!targets.length||!("IntersectionObserver" in window)) return;
+  const io=new IntersectionObserver(entries=>{
+    entries.forEach(en=>{
+      if(!en.isIntersecting) return;
+      const a=map.get(en.target.id); if(!a) return;
+      links.forEach(l=>l.classList.remove("active"));
+      a.classList.add("active");
+    });
+  },{rootMargin:"-45% 0px -50% 0px",threshold:0});
+  targets.forEach(t=>io.observe(t));
+})();
+
+/* ========== Scroll-to-top ========== */
+(function(){
+  const btn=document.getElementById("toTop");
+  if(!btn) return;
+  let ticking=false;
+  window.addEventListener("scroll",()=>{
+    if(ticking) return; ticking=true;
+    requestAnimationFrame(()=>{btn.classList.toggle("show",window.scrollY>480);ticking=false;});
+  },{passive:true});
+  btn.addEventListener("click",()=>window.scrollTo({top:0,behavior:"smooth"}));
+})();
+</script>

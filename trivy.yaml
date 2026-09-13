@@ -1,0 +1,17 @@
+# Trivy filesystem scan configuration (used by the `trivy` CI job).
+ignorefile: .trivyignore.yaml
+severity:
+  - HIGH
+  - CRITICAL
+exit-code: 1
+scan:
+  scanners:
+    - vuln
+    - misconfig
+    - secret
+  skip-dirs:
+    - .venv
+    - .venv-ui
+    - node_modules
+    - infrastructure/agentcore/cdk/node_modules
+    - infrastructure/cdk/node_modules

@@ -1,0 +1,28 @@
+# Triaged, justified scanner exceptions — each entry is scoped to specific
+# paths and carries its reasoning. Anything not listed here must be fixed,
+# not ignored. Review on every dependency bump.
+
+vulnerabilities:
+  # aws-cdk-lib's *bundled* brace-expansion copy (5.0.8, needs 5.0.9).
+  # Bundled dependencies live inside the published aws-cdk-lib tarball and are
+  # unreachable by `npm overrides` / `npm audit fix`; every reachable copy is
+  # already pinned >=5.0.9 via overrides in both package.json files. Exposure
+  # is build-time only (`cdk synth` asset-globbing, devDependency path) —
+  # never attacker-supplied input in anything deployed. Remove this entry when
+  # aws-cdk-lib ships a release bundling >=5.0.9.
+  - id: CVE-2026-69152
+    paths:
+      - infrastructure/agentcore/cdk/package-lock.json
+      - infrastructure/cdk/package-lock.json
+    statement: aws-cdk-lib bundled dependency; build-time only; all reachable copies pinned >=5.0.9 via npm overrides.
+
+misconfigurations:
+  # DS-0002 (image runs as root) on the AWS Lambda base image. Lambda executes
+  # container images under its own unprivileged sandbox user regardless of the
+  # image's USER directive, and mutating the Lambda base image's user risks
+  # breaking the runtime interface client. The agent's own runtime image
+  # (source/agent/Dockerfile) DOES set a non-root user.
+  - id: DS-0002
+    paths:
+      - infrastructure/agentcore/mcp-targets/aws-documentation/Dockerfile
+    statement: AWS Lambda base image; Lambda runs containers under its own unprivileged sandbox user.

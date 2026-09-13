@@ -1,0 +1,482 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sample Report — AWS SOW Validator</title>
+<style>
+:root{
+  --accent:#7C3AED; --accent-soft:#EDE7FB; --accent-ink:#5B21B6;
+  --paper:#FAF9FC; --card:#FFFFFF; --ink:#1C1826; --ink-2:#5B5566; --ink-3:#8A8496;
+  --line:#E4E0EC; --line-soft:#EFECF5;
+  --crit:#C42847; --crit-bg:#FBEDF0; --high:#B45309; --high-bg:#FBF3E7;
+  --med:#2563EB; --med-bg:#EAF0FD; --low:#6B7280; --low-bg:#F1F2F4;
+  --pass:#15803D; --pass-bg:#EAF5EE;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --accent:#A78BFA; --accent-soft:#2A2140; --accent-ink:#C4B5FD;
+    --paper:#14111B; --card:#1D1927; --ink:#EDEAF4; --ink-2:#A9A3B8; --ink-3:#7C7690;
+    --line:#332D42; --line-soft:#272233;
+    --crit:#F0637F; --crit-bg:#371822; --high:#F0A24A; --high-bg:#33250F;
+    --med:#7AA5F8; --med-bg:#1B2740; --low:#9CA3AF; --low-bg:#26232E;
+    --pass:#5BBF7E; --pass-bg:#16281D;
+  }
+}
+:root[data-theme="dark"]{
+  --accent:#A78BFA; --accent-soft:#2A2140; --accent-ink:#C4B5FD;
+  --paper:#14111B; --card:#1D1927; --ink:#EDEAF4; --ink-2:#A9A3B8; --ink-3:#7C7690;
+  --line:#332D42; --line-soft:#272233;
+  --crit:#F0637F; --crit-bg:#371822; --high:#F0A24A; --high-bg:#33250F;
+  --med:#7AA5F8; --med-bg:#1B2740; --low:#9CA3AF; --low-bg:#26232E;
+  --pass:#5BBF7E; --pass-bg:#16281D;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:15px/1.55 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+h1{font-size:24px;font-weight:750;letter-spacing:-.02em;margin:0}
+h1 .k{color:var(--accent)}
+.sub{color:var(--ink-2);font-size:13.5px;margin:0 0 22px}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:8px;
+  padding:9px 18px;font-size:14px;font-weight:650;cursor:pointer;text-decoration:none;display:inline-block}
+.btn.ghost{background:var(--card);color:var(--accent-ink);border:1px solid var(--line)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn:hover{filter:brightness(1.05)}
+.samplebanner{background:var(--accent-soft);color:var(--accent-ink);border:1px solid var(--line);
+  border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  font-size:13.5px;font-weight:650;margin-bottom:22px}
+.samplebanner a{color:var(--accent-ink)}
+.verdict{border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.verdict .word{font-size:19px;font-weight:800;letter-spacing:-.01em}
+.verdict .why{font-size:13.5px;opacity:.85}
+.v-fix{background:var(--high-bg);color:var(--high)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px}
+.chip{border-radius:99px;padding:4px 13px;font-size:12.5px;font-weight:700;
+  font-variant-numeric:tabular-nums}
+.c-crit{background:var(--crit-bg);color:var(--crit)} .c-high{background:var(--high-bg);color:var(--high)}
+.c-med{background:var(--med-bg);color:var(--med)} .c-low{background:var(--low-bg);color:var(--low)}
+.c-pass{background:var(--pass-bg);color:var(--pass)} .c-score{background:var(--accent-soft);color:var(--accent-ink)}
+section{margin-top:26px}
+h2{font-size:12.5px;font-weight:750;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line-soft)}
+h3{font-size:14.5px;font-weight:700;margin:18px 0 8px;color:var(--ink)}
+h3:first-child{margin-top:0}
+.finding{display:grid;grid-template-columns:4px 1fr;gap:0 14px;background:var(--card);
+  border:1px solid var(--line-soft);border-radius:10px;margin-bottom:10px;overflow:hidden}
+.finding .stripe{border-radius:0}
+.f-crit .stripe{background:var(--crit)} .f-high .stripe{background:var(--high)}
+.f-med .stripe{background:var(--med)} .f-low .stripe{background:var(--low)}
+.finding .body{padding:12px 16px 12px 2px}
+.finding .head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.sev{font-size:10.5px;font-weight:800;letter-spacing:.08em;border-radius:5px;padding:2px 7px}
+.s-crit{background:var(--crit-bg);color:var(--crit)} .s-high{background:var(--high-bg);color:var(--high)}
+.s-med{background:var(--med-bg);color:var(--med)} .s-low{background:var(--low-bg);color:var(--low)}
+.finding .title{font-weight:680;font-size:14.5px}
+.finding .cat{color:var(--ink-3);font-size:12px}
+.finding .detail{color:var(--ink-2);font-size:13px;margin-top:6px}
+.finding .impact{font-size:12.5px;margin-top:6px;color:var(--ink-2)}
+.finding .impact b{color:var(--ink)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line-soft);
+  border-radius:10px;overflow:hidden;font-size:13.5px}
+.tblwrap{overflow-x:auto}
+th{background:var(--accent);color:#fff;text-align:left;padding:8px 12px;font-size:12px;
+  letter-spacing:.05em;text-transform:uppercase}
+td{padding:7px 12px;border-top:1px solid var(--line-soft);vertical-align:top}
+td.num{text-align:right;font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.total td{font-weight:750;border-top:2px solid var(--line)}
+.band{font-size:11px;font-weight:750;border-radius:5px;padding:2px 8px;white-space:nowrap}
+.b-0,.b-1{background:var(--crit-bg);color:var(--crit)} .b-2{background:var(--high-bg);color:var(--high)}
+.b-3{background:var(--pass-bg);color:var(--pass)} .b-4{background:var(--accent-soft);color:var(--accent-ink)}
+.checklist{display:flex;gap:8px;flex-wrap:wrap}
+.pillar{background:var(--card);border:1px solid var(--line-soft);border-radius:10px;padding:14px 18px;margin-bottom:14px}
+.pillar ul{margin:0 0 8px;padding-left:20px;color:var(--ink-2);font-size:13.5px}
+.pillar li{margin:4px 0}
+.pillar a{color:var(--accent-ink);font-size:12.5px}
+.meta{color:var(--ink-3);font-size:12px;margin-top:20px}
+.ctapanel{background:var(--accent-soft);border:1px solid var(--line);border-radius:12px;
+  padding:18px 20px;margin-top:26px}
+.ctapanel h2{border-bottom:none;color:var(--accent-ink);margin-bottom:6px}
+.codebox{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px;
+  font:12.5px/1.5 var(--mono);color:var(--ink);overflow-x:auto;white-space:pre;margin-top:10px}
+/* ---- product nav / how-it's-built / scroll-to-top ---- */
+.sitenav{position:sticky;top:0;z-index:50;background:var(--card);border-bottom:1px solid var(--line-soft)}
+.sitenav .inner{max-width:960px;margin:0 auto;padding:0 20px;display:flex;align-items:center;gap:18px;
+  height:54px;overflow-x:auto;scrollbar-width:none}
+.sitenav .inner::-webkit-scrollbar{display:none}
+.sitenav .brand{display:flex;align-items:center;gap:8px;font-weight:750;font-size:14.5px;color:var(--ink);
+  text-decoration:none;white-space:nowrap;flex:none}
+.sitenav .brand .mark{width:22px;height:22px;border-radius:6px;background:var(--accent);color:#fff;
+  display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex:none}
+.sitenav .links{display:flex;gap:2px;flex:none}
+.sitenav .links a{color:var(--ink-2);text-decoration:none;font-size:13.5px;font-weight:600;
+  padding:8px 10px;border-radius:7px;white-space:nowrap;transition:color .15s,background .15s}
+.sitenav .links a:hover{color:var(--ink);background:var(--line-soft)}
+.sitenav .links a.active{color:var(--accent-ink);background:var(--accent-soft)}
+.sitenav .links a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.diagramwrap{overflow:auto;background:#fff;border:1px solid var(--line-soft);border-radius:10px;
+  padding:16px;max-height:75vh}
+.diagramwrap a{display:block;width:fit-content;margin:0 auto}
+.diagramwrap img{display:block;width:auto;max-width:none;height:auto;border-radius:4px;cursor:zoom-in}
+.diagramwrap a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.diagram-caption{color:var(--ink-3);font-size:12.5px;margin-top:8px;text-align:center}
+.svcgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.svcchip{background:var(--accent-soft);color:var(--accent-ink);border-radius:99px;padding:5px 13px;
+  font-size:12.5px;font-weight:650}
+.totop{position:fixed;right:20px;bottom:20px;width:44px;height:44px;border-radius:50%;
+  background:var(--accent);color:#fff;border:none;font-size:18px;line-height:1;cursor:pointer;
+  box-shadow:0 4px 14px rgba(0,0,0,.22);opacity:0;pointer-events:none;
+  transform:translateY(8px);transition:opacity .2s,transform .2s;z-index:60}
+.totop.show{opacity:1;pointer-events:auto;transform:none}
+.totop:hover{filter:brightness(1.08)}
+.totop:focus-visible{outline:2px solid var(--accent-ink);outline-offset:3px}
+@media (prefers-reduced-motion: reduce){.totop{transition:none}}
+</style>
+
+<nav class="sitenav" id="siteNav" aria-label="Section navigation">
+  <div class="inner">
+    <a class="brand" href="#top"><span class="mark">SV</span>AWS SOW Validator</a>
+    <div class="links" id="navLinks">
+      <a href="#top">Overview</a>
+      <a href="#findings">Findings</a>
+      <a href="#well-architected">Well-Architected</a>
+      <a href="#checklist">Best practices</a>
+      <a href="#diagram-check">Diagram</a>
+      <a href="#cost-check">Cost check</a>
+      <a href="#cost">Cost</a>
+      <a href="#integrations">Integrations</a>
+      <a href="#how-it-works">How it's built</a>
+      <a href="#deploy">Deploy your own</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+<div class="samplebanner">
+  📄 This sample report is provided for visualisation purposes. It illustrates the depth of a full
+  agent-assisted review, applied here to an illustrative order-tracking workload.
+  <a href="index.html#validate" class="btn" style="margin-left:auto">Run your own review →</a>
+</div>
+
+<header id="top"><h1><span class="k">AWS SOW</span> Validator</h1></header>
+<p class="sub">Full agent review · Client: <b>Any Company Corp.</b> (illustrative example) · Workload:
+serverless order-tracking platform on AWS · Segment: Digital Native · Region: us-east-1</p>
+
+<div class="verdict v-fix"><span class="word">⚠️ FIX REQUIRED</span>
+  <span class="why">2 high-severity findings to resolve before delivery. 4 medium and 2 low findings remain
+  for the next editing pass.</span></div>
+<div class="chips">
+  <span class="chip c-crit">Critical 0</span><span class="chip c-high">High 2</span>
+  <span class="chip c-med">Medium 4</span><span class="chip c-low">Low 2</span>
+  <span class="chip c-pass">Passed 15</span><span class="chip c-score">SOW score 71.5 — Acceptable</span>
+</div>
+
+<section id="findings"><h2>Findings</h2>
+
+<div class="tblwrap"><table>
+<tr><th>ID</th><th>Severity</th><th>Title</th><th>Evidence</th><th>Recommendation</th></tr>
+<tr><td>F-01</td><td><span class="sev s-high">HIGH</span></td>
+  <td>Lambda functions share one broad execution role</td>
+  <td>IAM section: <i>OrderProcessingRole</i> attached to 14 functions with <code>AmazonDynamoDBFullAccess</code></td>
+  <td>Split into per-function least-privilege roles scoped to specific table ARNs and actions.</td></tr>
+<tr><td>F-02</td><td><span class="sev s-high">HIGH</span></td>
+  <td>No dead-letter queue on the order-status EventBridge rule</td>
+  <td>EventBridge rule <i>order-status-updates</i> targets Lambda directly, no DLQ or retry policy documented</td>
+  <td>Attach an SQS DLQ and a retry policy (MaximumRetryAttempts, MaximumEventAgeSeconds) to the rule target.</td></tr>
+<tr><td>F-03</td><td><span class="sev s-med">MEDIUM</span></td>
+  <td>DynamoDB tables have no backup plan referenced</td>
+  <td>Data layer lists <i>Orders</i> and <i>Shipments</i> tables; no point-in-time recovery or AWS Backup mention</td>
+  <td>Enable point-in-time recovery and add both tables to an AWS Backup plan with a 35-day retention window.</td></tr>
+<tr><td>F-04</td><td><span class="sev s-med">MEDIUM</span></td>
+  <td>API Gateway has no request validation or throttling stated</td>
+  <td>REST API <i>orders-api</i> section omits usage plans and request validators</td>
+  <td>Add a usage plan with per-client throttling/burst limits and JSON-schema request validation.</td></tr>
+<tr><td>F-05</td><td><span class="sev s-med">MEDIUM</span></td>
+  <td>CloudFront distribution has no WAF Web ACL</td>
+  <td>Edge section: CloudFront → S3 static portal, no WAF association listed</td>
+  <td>Attach AWS WAF with the Core rule set and a rate-based rule to the distribution.</td></tr>
+<tr><td>F-06</td><td><span class="sev s-med">MEDIUM</span></td>
+  <td>Cognito user pool MFA not specified</td>
+  <td>Identity section describes email/password sign-up; MFA setting not mentioned</td>
+  <td>Set MfaConfiguration to OPTIONAL or ON with TOTP for accounts that can view shipment data.</td></tr>
+<tr><td>F-07</td><td><span class="sev s-low">LOW</span></td>
+  <td>CloudWatch Logs retention not set (defaults to Never Expire)</td>
+  <td>9 Lambda log groups referenced; no retention_in_days configured on any of them</td>
+  <td>Set an explicit retention period (e.g. 90 days) on every log group.</td></tr>
+<tr><td>F-08</td><td><span class="sev s-low">LOW</span></td>
+  <td>Step Functions workflow not covered by distributed tracing</td>
+  <td>Observability section enables X-Ray on <i>orders-api</i> only; the state machine section is silent on tracing</td>
+  <td>Enable ACTIVE tracing configuration on the order-fulfillment state machine for end-to-end trace continuity.</td></tr>
+</table></div>
+</section>
+
+<section id="well-architected"><h2>Well-Architected review</h2>
+
+<div class="pillar"><h3>Operational Excellence</h3>
+<ul>
+<li>No CI/CD pipeline described for Lambda deployments — updates appear to be applied manually.</li>
+<li>No documented rollback strategy for a failed Step Functions execution.</li>
+<li>Lambda functions don't share a structured (JSON) logging format, which limits CloudWatch Logs Insights queries.</li>
+</ul>
+<a href="https://docs.aws.amazon.com/wellarchitected/latest/operational-excellence-pillar/welcome.html" target="_blank" rel="noopener">AWS Well-Architected — Operational Excellence Pillar →</a>
+</div>
+
+<div class="pillar"><h3>Security</h3>
+<ul>
+<li>A single broad IAM role is reused across 14 Lambda functions instead of least-privilege, per-function roles.</li>
+<li>No AWS WAF sits in front of the public REST API or the CloudFront distribution.</li>
+<li>Customer-managed KMS keys aren't specified — S3 and DynamoDB appear to rely on default AWS-managed keys.</li>
+</ul>
+<a href="https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/welcome.html" target="_blank" rel="noopener">AWS Well-Architected — Security Pillar →</a>
+</div>
+
+<div class="pillar"><h3>Reliability</h3>
+<ul>
+<li>No dead-letter queues configured on EventBridge or SQS targets in the order-fulfillment path.</li>
+<li>DynamoDB tables have no documented backup or point-in-time-recovery strategy.</li>
+<li>Single-region deployment with no documented failover or DR plan for the order-fulfillment workflow.</li>
+</ul>
+<a href="https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/welcome.html" target="_blank" rel="noopener">AWS Well-Architected — Reliability Pillar →</a>
+</div>
+
+<div class="pillar"><h3>Performance Efficiency</h3>
+<ul>
+<li>DynamoDB on-demand mode was chosen without a documented access-pattern analysis.</li>
+<li>No caching layer (API Gateway caching or DAX) sits in front of high-read endpoints like order-status lookups.</li>
+<li>Lambda memory sizes aren't documented, so cost/performance tuning can't be verified.</li>
+</ul>
+<a href="https://docs.aws.amazon.com/wellarchitected/latest/performance-efficiency-pillar/welcome.html" target="_blank" rel="noopener">AWS Well-Architected — Performance Efficiency Pillar →</a>
+</div>
+
+<div class="pillar"><h3>Cost Optimization</h3>
+<ul>
+<li>CloudWatch Logs retention is left at the default "Never Expire," accumulating unbounded storage cost.</li>
+<li>No use of AWS Compute Optimizer or Lambda Power Tuning to right-size function memory.</li>
+<li>On-demand DynamoDB pricing wasn't compared against provisioned + auto scaling at this order volume.</li>
+</ul>
+<a href="https://docs.aws.amazon.com/wellarchitected/latest/cost-optimization-pillar/welcome.html" target="_blank" rel="noopener">AWS Well-Architected — Cost Optimization Pillar →</a>
+</div>
+
+<div class="pillar"><h3>Sustainability</h3>
+<ul>
+<li>No log or data retention limits are documented, increasing the storage footprint unnecessarily.</li>
+<li>Lambda functions weren't evaluated for arm64 (Graviton2) compatibility, which typically improves performance-per-watt.</li>
+<li>No S3 lifecycle policy is documented for shipment documents to move them to lower-carbon storage tiers.</li>
+</ul>
+<a href="https://docs.aws.amazon.com/wellarchitected/latest/sustainability-pillar/welcome.html" target="_blank" rel="noopener">AWS Well-Architected — Sustainability Pillar →</a>
+</div>
+</section>
+
+<section id="checklist"><h2>AWS best-practices checklist</h2>
+<div class="checklist">
+<span class="chip c-pass">✓ TLS 1.2+ on API custom domain</span>
+<span class="chip c-pass">✓ S3 &amp; DynamoDB encryption at rest</span>
+<span class="chip c-pass">✓ CloudTrail multi-region trail</span>
+<span class="chip c-crit">✗ IAM least-privilege per function</span>
+<span class="chip c-crit">✗ MFA on customer accounts</span>
+<span class="chip c-crit">✗ WAF on public endpoints</span>
+<span class="chip c-crit">✗ Dead-letter queues on async targets</span>
+<span class="chip c-crit">✗ DynamoDB backup / PITR</span>
+<span class="chip c-crit">✗ CloudWatch Logs retention configured</span>
+<span class="chip c-med">◑ End-to-end distributed tracing</span>
+</div>
+</section>
+
+<section id="diagram-check"><h2>Architecture diagram verification</h2>
+<p class="sub">The submitted diagram is parsed, not read by eye. Every service named in the
+Scope of Work is matched against the services actually present in the diagram, and every
+connection between them is classified against a fixed integration catalogue. Mismatches
+between the prose and the picture are the most common defect found in a partner SOW.</p>
+<table>
+  <thead><tr><th>Check</th><th>Result</th><th>Evidence</th></tr></thead>
+  <tbody>
+    <tr><td>Diagram source parsed</td><td><span class="chip pass">Deterministic</span></td>
+      <td>Mermaid source parsed exactly — no vision model, no confirmation gate required.</td></tr>
+    <tr><td>Services in SOW vs diagram</td><td><span class="chip warn">1 mismatch</span></td>
+      <td>SOW section 9 names Amazon ElastiCache; it does not appear in the diagram.</td></tr>
+    <tr><td>Services in diagram vs SOW</td><td><span class="chip pass">0 mismatches</span></td>
+      <td>Every diagrammed service is described in the scope text.</td></tr>
+    <tr><td>Edges classified</td><td><span class="chip pass">11 of 11</span></td>
+      <td>See the integration table below: 9 native, 1 glue-required, 1 unverified.</td></tr>
+    <tr><td>Unverified pairings</td><td><span class="chip warn">1</span></td>
+      <td>EventBridge &rarr; Step Functions is absent from the catalogue and is reported as
+        <em>unverified</em> rather than assumed correct.</td></tr>
+  </tbody>
+</table>
+<p class="note">A service pair that is not in the catalogue is never silently approved. The
+classifier has no path to invent a verdict.</p>
+</section>
+
+<section id="cost-check"><h2>Cost model verification</h2>
+<p class="sub">Cost is the figure a customer reads first and the one most often wrong. Every
+row is re-totalled from its own line items and compared against the total stated in the
+document; the model never produces a number.</p>
+<table>
+  <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
+  <tbody>
+    <tr><td>Line items re-totalled</td><td><span class="chip pass">Match</span></td>
+      <td>12 rows sum to <strong>$356.35</strong>; the document states $356.35. Delta <strong>$0.00</strong>.</td></tr>
+    <tr><td>Annual figure</td><td><span class="chip pass">Match</span></td>
+      <td>$356.35 &times; 12 = $4,276.20, as stated.</td></tr>
+    <tr><td>Minimum engagement floor</td><td><span class="chip pass">Above floor</span></td>
+      <td>Configured floor is $2,000/month for a delivery engagement; this is an
+        infrastructure-only estimate and is exempt.</td></tr>
+    <tr><td>Region consistency</td><td><span class="chip pass">Consistent</span></td>
+      <td>All rows priced for us-east-1, matching the stated deployment region.</td></tr>
+    <tr><td>Independent re-pricing</td><td><span class="chip warn">Review</span></td>
+      <td>Figures are planning estimates. Rebuild them against current list prices with the
+        <a href="https://calculator.aws/#/estimate" target="_blank" rel="noopener">AWS Pricing
+        Calculator</a> before the numbers reach a customer.</td></tr>
+  </tbody>
+</table>
+<p class="note">Arithmetic is computed in Python from the parsed table. A delta of anything
+other than $0.00 is raised as a finding, regardless of how small.</p>
+</section>
+
+<section id="cost"><h2>Monthly cost estimate — us-east-1</h2>
+<div class="tblwrap"><table>
+<tr><th>Service</th><th>Driver</th><th>Monthly</th></tr>
+<tr><td>Amazon API Gateway (REST)</td><td>8M requests/mo</td><td class="num">$28.00</td></tr>
+<tr><td>AWS Lambda</td><td>12M invocations · 400ms avg · 512MB</td><td class="num">$46.50</td></tr>
+<tr><td>Amazon DynamoDB (on-demand)</td><td>8M writes + 20M reads/mo</td><td class="num">$62.30</td></tr>
+<tr><td>Amazon SQS</td><td>6M requests/mo</td><td class="num">$2.40</td></tr>
+<tr><td>Amazon SNS</td><td>1M notifications/mo (email + SMS mix)</td><td class="num">$18.75</td></tr>
+<tr><td>AWS Step Functions</td><td>2M state transitions/mo (Standard)</td><td class="num">$50.00</td></tr>
+<tr><td>Amazon S3</td><td>250GB storage + requests</td><td class="num">$6.90</td></tr>
+<tr><td>Amazon CloudFront</td><td>400GB data transfer out</td><td class="num">$34.00</td></tr>
+<tr><td>Amazon Cognito</td><td>15,000 monthly active users</td><td class="num">$75.00</td></tr>
+<tr><td>Amazon EventBridge</td><td>3M custom events/mo</td><td class="num">$3.00</td></tr>
+<tr><td>Amazon CloudWatch</td><td>40GB log ingestion + custom metrics</td><td class="num">$22.60</td></tr>
+<tr><td>AWS KMS</td><td>12 CMKs + 5M requests/mo</td><td class="num">$6.90</td></tr>
+<tr class="total"><td colspan="2">Total / month</td><td class="num">$356.35</td></tr>
+</table></div>
+<p class="sub" style="margin-top:8px">AWS WAF is intentionally absent from this table — see finding F-05; adding it
+raises the total by roughly $6/month per Web ACL plus $1/month per managed rule group.</p>
+</section>
+
+<section id="integrations"><h2>Service integration / chaining</h2>
+<div class="tblwrap"><table>
+<tr><th>Pair</th><th>Classification</th><th>Note</th></tr>
+<tr><td>API Gateway → Lambda</td><td><span class="band b-3">NATIVE</span></td><td>Standard proxy integration.</td></tr>
+<tr><td>Cognito → API Gateway (authorizer)</td><td><span class="band b-3">NATIVE</span></td><td>Cognito user pool authorizer on protected routes.</td></tr>
+<tr><td>Lambda → DynamoDB</td><td><span class="band b-3">NATIVE</span></td><td>AWS SDK, IAM-scoped access.</td></tr>
+<tr><td>DynamoDB Streams → Lambda</td><td><span class="band b-3">NATIVE</span></td><td>Event source mapping drives downstream notifications.</td></tr>
+<tr><td>SQS → Lambda (event source mapping)</td><td><span class="band b-3">NATIVE</span></td><td>Order-processing queue consumer.</td></tr>
+<tr><td>Step Functions → Lambda</td><td><span class="band b-3">NATIVE</span></td><td>Order-fulfillment state machine tasks.</td></tr>
+<tr><td>S3 → Lambda (event notification)</td><td><span class="band b-3">NATIVE</span></td><td>Triggers on uploaded shipment documents.</td></tr>
+<tr><td>CloudFront → S3 (OAC)</td><td><span class="band b-3">NATIVE</span></td><td>Static customer portal, origin access control.</td></tr>
+<tr><td>Lambda → DynamoDB (no VPC endpoint)</td><td><span class="band b-2">GLUE-REQUIRED</span></td><td>Traffic currently rides the public AWS network path — add a Gateway VPC endpoint to keep it private.</td></tr>
+<tr><td>EventBridge → external partner webhook</td><td><span class="band b-1">ANTI-PATTERN</span></td><td>No dead-letter queue or retry policy on the target — matches finding F-02.</td></tr>
+<tr><td>Lambda → third-party carrier API (webhook)</td><td><span class="band b-4">UNVERIFIED</span></td><td>External dependency; SLA and failure-mode behavior not documented in the SOW.</td></tr>
+</table></div>
+</section>
+
+<section id="how-it-works">
+<h2>How this is built</h2>
+<p class="sub">AWS SOW Validator runs a two-tier review. Tier 1 is fully deterministic — it runs the
+  moment a document is dropped, with no model call, no network round trip beyond loading the page,
+  and no cost. Tier 2 adds an agent-assisted review, powered by Amazon Nova on Amazon Bedrock
+  AgentCore Runtime, for teams that want a deeper, model-informed pass — this report is an example of
+  Tier 2 output.</p>
+<p class="sub">In Tier 2 the model's job is narrow by design: it reads the SOW and proposes what it
+  sees. Every number in the report — cost lines, arithmetic deltas, severity counts — is computed by
+  Python, not the model. Every integration verdict (native, glue-required, anti-pattern, unverified)
+  is decided by a rule pack against a fixed service graph. Every citation is a real AWS documentation
+  URL resolved by code, never invented text. The model proposes; the pipeline decides.</p>
+<div class="diagramwrap">
+  <a href="architecture.png" target="_blank" rel="noopener" aria-label="Open the architecture diagram at full size in a new tab">
+    <img src="architecture.png" loading="lazy" alt="Architecture diagram of AWS SOW Validator: Amazon
+      CloudFront and AWS WAF in front of an Amazon S3-hosted static site; Amazon Cognito for
+      authentication; signed API requests routed through AWS Lambda; Lambda invoking Amazon Bedrock
+      AgentCore Runtime, which uses AgentCore Memory, Gateway, Identity, Policy Engine and Code
+      Interpreter alongside Amazon Nova on Bedrock and Bedrock Knowledge Bases; results and run counters
+      stored in Amazon DynamoDB.">
+  </a>
+</div>
+<p class="diagram-caption">Figure: AWS SOW Validator request and review path. Scroll to see the full
+  diagram, or click it to open the full-size image in a new tab.</p>
+<p class="meta" style="margin-top:8px">Request path: CloudFront + WAF + S3 (static site) → Cognito
+  (authentication) → Lambda (API + rule packs) → Bedrock AgentCore Runtime (Memory, Gateway, Identity,
+  Policy Engine, Code Interpreter) → Amazon Nova on Bedrock + Bedrock Knowledge Bases → DynamoDB
+  (results, quotas).</p>
+<div class="svcgrid">
+  <span class="svcchip">Amazon Bedrock</span>
+  <span class="svcchip">Bedrock AgentCore Runtime</span>
+  <span class="svcchip">AgentCore Memory</span>
+  <span class="svcchip">AgentCore Gateway</span>
+  <span class="svcchip">AgentCore Identity</span>
+  <span class="svcchip">AgentCore Policy Engine</span>
+  <span class="svcchip">AgentCore Code Interpreter</span>
+  <span class="svcchip">Bedrock Knowledge Bases</span>
+  <span class="svcchip">Amazon CloudFront</span>
+  <span class="svcchip">Amazon S3</span>
+  <span class="svcchip">AWS Lambda</span>
+  <span class="svcchip">Amazon DynamoDB</span>
+  <span class="svcchip">Amazon Cognito</span>
+  <span class="svcchip">AWS WAF</span>
+</div>
+</section>
+
+<section id="deploy" class="ctapanel">
+<h2>Deploy in your AWS account</h2>
+<p class="sub" style="margin:0">Access to the hosted instance is limited — sign-up is restricted and
+  the free tier caps out at one full agent review per account. AWS SOW Validator is open source: clone
+  the repository and deploy your own copy into your own AWS account, with no sign-up restriction and
+  no quota. Point it at your own SOW and get this same review — findings, Well-Architected breakdown,
+  cost table, and integration check — against your real design.</p>
+<div class="codebox">git clone https://github.com/schinchli/aws-sow-validator
+cd aws-sow-validator/infrastructure/cdk
+npm ci
+npx cdk deploy PocValidatorWebStack</div>
+<div style="margin-top:12px">
+  <a class="btn" href="https://github.com/schinchli/aws-sow-validator" target="_blank" rel="noopener">View the repository →</a>
+  <a class="btn ghost" href="index.html#validate" style="margin-left:8px">Try the hosted demo →</a>
+</div>
+</section>
+
+<p class="meta">Sample report generated by the AWS SOW Validator agent review pipeline. The client and
+workload shown are illustrative, provided to demonstrate the depth and structure of a full review.
+<a href="index.html">← Back to AWS SOW Validator</a></p>
+</main>
+<button id="toTop" class="totop" aria-label="Scroll to top" title="Back to top">↑</button>
+
+<script>
+/* ========== Sticky nav: smooth scroll + active-section highlight ========== */
+document.addEventListener("click",e=>{
+  const a=e.target.closest('a[href^="#"]');
+  if(!a) return;
+  const id=a.getAttribute("href").slice(1);
+  const el=document.getElementById(id);
+  if(!el) return;
+  e.preventDefault();
+  el.scrollIntoView({behavior:"smooth",block:"start"});
+  try{history.replaceState(null,"","#"+id);}catch{}
+});
+(function(){
+  const links=[...document.querySelectorAll("#navLinks a")];
+  const map=new Map(links.map(a=>[a.getAttribute("href").slice(1),a]));
+  const targets=[...map.keys()].map(id=>document.getElementById(id)).filter(Boolean);
+  if(!targets.length||!("IntersectionObserver" in window)) return;
+  const io=new IntersectionObserver(entries=>{
+    entries.forEach(en=>{
+      if(!en.isIntersecting) return;
+      const a=map.get(en.target.id); if(!a) return;
+      links.forEach(l=>l.classList.remove("active"));
+      a.classList.add("active");
+    });
+  },{rootMargin:"-45% 0px -50% 0px",threshold:0});
+  targets.forEach(t=>io.observe(t));
+})();
+
+/* ========== Scroll-to-top ========== */
+(function(){
+  const btn=document.getElementById("toTop");
+  if(!btn) return;
+  let ticking=false;
+  window.addEventListener("scroll",()=>{
+    if(ticking) return; ticking=true;
+    requestAnimationFrame(()=>{btn.classList.toggle("show",window.scrollY>480);ticking=false;});
+  },{passive:true});
+  btn.addEventListener("click",()=>window.scrollTo({top:0,behavior:"smooth"}));
+})();
+</script>

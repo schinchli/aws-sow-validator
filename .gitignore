@@ -1,0 +1,33 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.venv-ui/
+.venv-agent/
+infrastructure/agentcore/.env.local
+infrastructure/agentcore/aws-targets.json
+infrastructure/agentcore/agentcore.json
+infrastructure/agentcore/.cli/
+infrastructure/agentcore/cdk/node_modules/
+infrastructure/agentcore/cdk/cdk.out/
+infrastructure/agentcore/cdk/dist/
+infrastructure/cdk/node_modules/
+infrastructure/cdk/cdk.out/
+infrastructure/cdk/dist/
+.cognito-state.json
+.DS_Store
+.understand-anything/
+.coverage
+htmlcov/
+
+# SOW Gatekeeper confidential runtime config (uploaded out-of-band, never committed)
+source/site-private/
+
+# Depth-independent: these must stay ignored wherever the tree is restructured.
+**/.cli/
+**/site-private/
+**/agentcore.json
+**/aws-targets.json
+**/.env.local
+*.log

@@ -1,0 +1,21 @@
+AWS SOW Validator
+Copyright 2026 the AWS SOW Validator contributors.
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file for the
+governing terms.
+
+This is an independent open-source project. It is not affiliated with, endorsed
+by, or sponsored by Amazon Web Services, Inc. or its affiliates. "AWS", "Amazon
+Bedrock", "Amazon Nova", "Amazon CloudFront", "Amazon Cognito" and related marks
+are trademarks of Amazon.com, Inc. or its affiliates, and are used here solely
+to identify the services this project integrates with, as permitted by nominative
+fair use.
+
+Results produced by this software are automated, non-binding guidance intended to
+assist a qualified human reviewer. They are not professional, legal, financial, or
+architectural advice, and are not a certification of compliance with any standard
+or regulation. Cost figures are indicative planning estimates only and will differ
+from actual AWS charges.
+
+Provided "as is", without warranty of any kind, express or implied, to the fullest
+extent permitted by applicable law.

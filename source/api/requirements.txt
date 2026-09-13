@@ -1,0 +1,8 @@
+boto3>=1.40.76
+botocore>=1.40.76
+google-auth>=2.35
+PyYAML>=6.0
+# Cognito ID token verification (web/lambda/handler.py _verify_jwt). [crypto]
+# pulls in `cryptography`, already a transitive dep of google-auth's
+# RSASigner above, so this adds no new native wheel to the Lambda bundle.
+PyJWT[crypto]>=2.11.0

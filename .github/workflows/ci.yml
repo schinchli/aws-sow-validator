@@ -1,0 +1,129 @@
+# CI + security scanning for the POC Validator Agent.
+#
+# Verification: pytest (deterministic core + tool boundary) and both CDK apps'
+# jest suites — the same offline checks the README promises.
+#
+# Security scanners (all readable from job logs / artifacts on a free private
+# repo — no Advanced Security required):
+#   - pip-audit : Python dependency advisories for the agent's exact install set
+#   - npm audit : both CDK lockfiles (JSON artifact per app)
+#   - semgrep   : SAST over Python + TypeScript (p/ci ruleset)
+#   - gitleaks  : secret scan over the FULL git history (pinned binary + checksum)
+#   - trivy     : filesystem scan — dependencies, Dockerfiles, IaC misconfig
+#
+# Every third-party action is pinned to a full commit SHA (not a mutable tag) —
+# a semgrep p/ci blocking rule, and the right call after the 2025 tj-actions /
+# trivy-action tag-repointing incidents.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: source/agent/requirements.txt
+      - run: pip install --quiet -r source/agent/requirements.txt pytest
+      - run: python -m pytest tests/ -q
+
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: source/agent/requirements.txt
+      - run: pip install --quiet pip-audit
+      # Audit the exact dependency set the agent container installs.
+      - run: pip install --quiet -r source/agent/requirements.txt
+      - run: pip-audit --skip-editable
+
+  jest-cdk:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cdk-dir: [infrastructure/agentcore/cdk, infrastructure/cdk]
+    defaults:
+      run:
+        working-directory: ${{ matrix.cdk-dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.cdk-dir }}/package-lock.json
+      # The AgentCoreApplication construct walks up looking for a directory
+      # named agentcore/ containing agentcore.json (now infrastructure/agentcore/).
+      # The real file is gitignored (it holds live account state after a
+      # deploy), so CI materialises it from the template — the same first
+      # step the README gives a developer.
+      - name: Materialise agentcore.json from template
+        if: matrix.cdk-dir == 'infrastructure/agentcore/cdk'
+        working-directory: .
+        run: cp infrastructure/agentcore/agentcore.json.template infrastructure/agentcore/agentcore.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npx jest --ci
+      # HIGH+ advisories fail the job. The one known-unfixable bundled advisory
+      # (aws-cdk-lib's brace-expansion, build-time only) is documented in the
+      # README and docs/CI_AND_SECURITY.md; everything else must be fixed.
+      - name: npm audit (report)
+        run: npm audit --json > npm-audit.json || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-audit-${{ strategy.job-index }}
+          path: ${{ matrix.cdk-dir }}/npm-audit.json
+
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: semgrep scan --config p/ci --error --exclude '*.min.js' .
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history, not just the tip
+      # Pinned binary with checksum verification instead of gitleaks-action:
+      # the action wrapper aborts on any git stderr output ("stderr is not
+      # empty") and adds nothing we need over the CLI.
+      - name: Run gitleaks (full history)
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl -sSLo gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
+          tar xzf gitleaks.tgz gitleaks
+          ./gitleaks git . --redact --exit-code 1 --verbose
+
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          trivy-config: trivy.yaml
